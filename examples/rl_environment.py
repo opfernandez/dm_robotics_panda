@@ -136,7 +136,7 @@ if __name__ == '__main__':
     agent = Agent(env.action_spec())
     # Run the environment and agent either in headless mode or inside the GUI.
     if args.gui:
-      app = utils.ApplicationWithPlot()
+      app = utils.ApplicationWithPlot(width=1920, height=1080)
       app.launch(env, policy=agent.step)
     else:
       run_loop.run(env, agent, [], max_steps=1000, real_time=True)
