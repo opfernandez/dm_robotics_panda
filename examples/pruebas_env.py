@@ -40,7 +40,7 @@ class Agent:
     self._spec = spec
     self.state = 0
     self.time_state = 0.1
-    self.elapsed = 5
+    self.elapsed = 3.5
 
   def step(self, timestep: dm_env.TimeStep) -> np.ndarray:
     """
@@ -103,13 +103,13 @@ if __name__ == '__main__':
 
   # Buscar posición del efector final
   robot_param = params.RobotParams(name='panda',
-                                  pose=(-0.65, 0.55, 0.5, 0.0, 0.0, 0),
+                                  pose=(0.0, 0.04, 0.66, 0.0, 0.0, np.pi/2),
                                   actuation=arm_constants.Actuation.CARTESIAN_VELOCITY)
   panda_env = environment.PandaEnvironment(robot_param, arena=arena)
 
   # to set the end-effector pose from the distribution above.
   pose0 = pose_distribution.ConstantPoseDistribution(
-      np.array([-0.30, 0.85, 0.65, np.pi, 0.0, -0.25*np.pi]))
+      np.array([0.0, 0.44, 1.05, np.pi, 0.0, np.pi/2]))
   initialize_arm = entity_initializer.PoseInitializer(
       panda_env.robots[robot_param.name].position_gripper,
       pose_sampler=pose0.sample_pose)
@@ -137,7 +137,7 @@ if __name__ == '__main__':
       print(f"[{ee.name}] was found")
       break 
   for i, body in enumerate(bodies):
-    if hasattr(body, "name") and body.name == "lunate":
+    if hasattr(body, "name") and body.name == "scaphoid":
       wrist = body
       print(f"[{wrist.name}] was found")
       break
@@ -149,7 +149,8 @@ if __name__ == '__main__':
     'weld',
     body1=ee,  
     body2=wrist, 
-    relpose=[-0.025, 0.0, 0.1, 0.82, -0.57, 0, 0]  # Relación inicial
+    relpose=[0.025, -0.05, 0.075, # Posición de la muñeca desde el efector del robot
+            0.0, 0.87, -0.50, 0.0],  # Rotación de la muñeca respecto del efector delo robot (180º,0º,60º)
   )
 
 
