@@ -66,20 +66,59 @@ if __name__ == '__main__':
   # Load environment from an MJCF file.
   XML_ARENA_PATH = "/home/oscar/TFM/models/myo_sim/arm/myoPandaEnv.xml"
   arena = composer.Arena(xml_path=XML_ARENA_PATH)
+
+  robot_param = params.RobotParams(name='panda',
+                                  pose=(-0.7, 0.55, 0.5, 0.0, 0.0, 0), # base position
+                                  actuation=arm_constants.Actuation.CARTESIAN_VELOCITY)
+  panda_env = environment.PandaEnvironment(robot_param, arena=arena)
+  # TODO: emplear native attachmet para el myoarm y sus includes en vez de un XML kilométrico
   XML_ARM_PATH = "/home/oscar/TFM/models/myo_sim/arm/myoarmPanda.xml"
   myoarm = MyoArm(xml_path=XML_ARM_PATH)
   arena.attach(myoarm)
+  # print(arena.mjcf_model.find_all('site'))
+  mjcf_model = arena.mjcf_model
 
-  robot_param = params.RobotParams(name='panda',
-                                  pose=(1.3, 0.6, 0.6, 0.0, 0.0, np.pi),
-                                  actuation=arm_constants.Actuation.CARTESIAN_VELOCITY)
-  panda_env = environment.PandaEnvironment(robot_param, arena=arena)
+  # Buscar posición de la muñeca
+  wrist_site = myoarm.mjcf_model.find('site', 'FDS_ellipsoid_site_FDS4_side')
+  # Buscar posición del efector final
+  robot_ee = panda_env._arena.mjcf_model.worldbody.find_all('body')
+  # panda_link1 = panda_env._arena.mjcf_model.find('body', 'panda_gripper/')
+  # print(panda_link1)
+
+    # Verificar los cuerpos del brazo humano
+  # print("\n\nBodies en el modelo del brazo humano (MyoArm):")
+  # for body in myoarm.mjcf_model.find_all('body'):
+  #     print(body.name)
+
+  # # Verificar los cuerpos del brazo robótico
+  # print("\n\nBodies en el modelo del Panda:")
+  # for body in panda_env._arena.mjcf_model.find_all('body'):
+  #     print(body.name)
+  
+  # print(robot_ee)
+  print(wrist_site)
+  # Crear un joint entre la muñeca y el efector final
+  joint = myoarm.mjcf_model.add(
+      'joint',
+      type='ball',  # 3 grados de libertad
+      name='human_robot_joint',
+      pos=wrist_site.pos,  # Posición del joint en la muñeca
+  )
+
+  # Agregar una restricción de igualdad entre ambos
+  myoarm.mjcf_model.equality.add(
+      'joint',
+      joint1=joint.full_identifier,
+      joint2=robot_ee.full_identifier,
+      name='wrist_to_ee_constraint',
+  )
+
 
   with panda_env.build_task_environment() as env:
     # Print the full action, observation and reward specification
     utils.full_spec(env)
     # Initialize the agent
     agent = Agent(env.action_spec())
-    # Run the environment and agent either in headless mode or inside the GUI.
+    # Run the environment and agent inside the GUI.
     app = utils.ApplicationWithPlot()
     app.launch(env, policy=agent.step)
