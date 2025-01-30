@@ -40,37 +40,43 @@ class Agent:
     self._spec = spec
     self.state = 0
     self.time_state = 0.1
-    self.elapsed = 3.5
+    self.elapsed = 4.0
 
   def step(self, timestep: dm_env.TimeStep) -> np.ndarray:
     """
     Computes velocities in the x/y plane parameterized in time.
     """
+    # keys = timestep.observation.keys()
+    # print(keys) -> Result:
+    # ['panda_joint_pos', 'panda_joint_vel', 'panda_joint_torques', 'panda_tcp_pos', 
+    # 'panda_tcp_quat', 'panda_tcp_rmat', 'panda_tcp_pose', 'panda_tcp_vel_world', 
+    # 'panda_tcp_vel_relative', 'panda_tcp_pos_control', 'panda_tcp_quat_control', 
+    # 'panda_tcp_rmat_control', 'panda_tcp_pose_control', 'panda_tcp_vel_control', 
+    # 'panda_force', 'panda_torque', 'panda_gripper_width', 'panda_gripper_state', 
+    # 'panda_twist_previous_action', 'time']
+
     time = timestep.observation['time'][0]
-    # r = 0.1
-    # vel_x = r * math.cos(time)  # Derivative of x = sin(t)
-    # vel_y = r * ((math.cos(time) * math.cos(time)) -
-    #              (math.sin(time) * math.sin(time)))
+
     action = np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
     # The action space of the Cartesian 6D effector corresponds to the
     # linear and angular velocities in x, y and z directions respectively 
     # Demo State Machine:
     if self.state == 0: # Move through Y-Z axis
       action[0] = 0.0 # Vel X
-      action[1] = -0.075 # Vel Y
-      action[2] = 0.1 # Vel Z
+      action[1] = -0.065 # Vel Y
+      action[2] = 0.065 # Vel Z
       if (time - self.time_state) > self.elapsed:
         self.state = 1
         self.time_state = time
     elif self.state == 1: # Move through X axis
-      action[0] = 0.075 # Vel X
+      action[0] = 0.065 # Vel X
       action[1] = 0.0 # Vel Y
       action[2] = 0.0 # Vel Z
       if (time - self.time_state) > self.elapsed:
         self.state = 2
         self.time_state = time
     elif self.state == 2: # Backwards through X axis
-      action[0] = -0.075 # Vel X
+      action[0] = -0.065 # Vel X
       action[1] = 0.0 # Vel Y
       action[2] = 0.0 # Vel Z
       if (time - self.time_state) > self.elapsed:
@@ -78,8 +84,8 @@ class Agent:
         self.time_state = time
     elif self.state == 3: # Backwards throught Y-Z axis
       action[0] = 0.0 # Vel X
-      action[1] = 0.075 # Vel Y
-      action[2] = -0.075 # Vel Z
+      action[1] = 0.065 # Vel Y
+      action[2] = -0.065 # Vel Z
       if (time - self.time_state) > self.elapsed:
         self.state = 4
         self.time_state = time
@@ -98,7 +104,13 @@ if __name__ == '__main__':
   args = parser.parse_args()
 
   # Load environment from an MJCF file.
-  XML_ARENA_PATH = "/home/oscar/TFM/models/myo_sim/arm/myoPandaEnv.xml"
+  # Get python script path
+  script_dir = os.path.dirname(os.path.abspath(__file__))
+  print(script_dir)
+  # Form absolute path to the XML file
+  XML_ARENA_PATH = os.path.join(script_dir, "../../models/myo_sim/arm/myoPandaEnv.xml")
+  print(XML_ARENA_PATH)
+  # XML_ARENA_PATH = "/home/oscar/TFM/models/myo_sim/arm/myoPandaEnv.xml"
   arena = composer.Arena(xml_path=XML_ARENA_PATH)
 
   # Buscar posición del efector final
@@ -122,13 +134,15 @@ if __name__ == '__main__':
   #                                                     physics=physics)
 
   # TODO: emplear native attachmet para el myoarm y sus includes en vez de un XML kilométrico
-  XML_ARM_PATH = "/home/oscar/TFM/models/myo_sim/arm/myoarmPanda.xml"
+  #XML_ARM_PATH = "/home/oscar/TFM/models/myo_sim/arm/myoarmPanda.xml"
+  # Form absolute path to the XML file
+  XML_ARM_PATH = os.path.join(script_dir, "../../models/myo_sim/arm/myoarmPanda.xml")
+  
   myoarm = MyoArm(xml_path=XML_ARM_PATH)
   panda_env._arena.attach(myoarm)
 
   bodies = panda_env._arena.mjcf_model.worldbody.find_all('body')
-  print(f"  ********\n\n {bodies} \n\n  ********")
-  print(bodies[-1].name)
+  # print(f"  ********\n\n {bodies} \n\n  ********")
   wrist = None
   ee = None
   for i, body in enumerate(bodies):
@@ -152,9 +166,6 @@ if __name__ == '__main__':
     relpose=[0.025, -0.05, 0.075, # Posición de la muñeca desde el efector del robot
             0.0, 0.87, -0.50, 0.0],  # Rotación de la muñeca respecto del efector delo robot (180º,0º,60º)
   )
-
-
-
 
   with panda_env.build_task_environment() as env:
     # Print the full action, observation and reward specification
