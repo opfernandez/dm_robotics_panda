@@ -110,7 +110,6 @@ if __name__ == '__main__':
   # Form absolute path to the XML file
   XML_ARENA_PATH = os.path.join(script_dir, "../../models/myo_sim/arm/myoPandaEnv.xml")
   print(XML_ARENA_PATH)
-  # XML_ARENA_PATH = "/home/oscar/TFM/models/myo_sim/arm/myoPandaEnv.xml"
   arena = composer.Arena(xml_path=XML_ARENA_PATH)
 
   # Buscar posición del efector final
@@ -134,7 +133,6 @@ if __name__ == '__main__':
   #                                                     physics=physics)
 
   # TODO: emplear native attachmet para el myoarm y sus includes en vez de un XML kilométrico
-  #XML_ARM_PATH = "/home/oscar/TFM/models/myo_sim/arm/myoarmPanda.xml"
   # Form absolute path to the XML file
   XML_ARM_PATH = os.path.join(script_dir, "../../models/myo_sim/arm/myoarmPanda.xml")
   
