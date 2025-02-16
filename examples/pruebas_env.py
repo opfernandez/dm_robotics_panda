@@ -16,6 +16,7 @@ from dm_robotics.panda import parameters as params
 from dm_robotics.panda import run_loop, utils
 from dm_robotics.moma import entity_initializer, prop
 from dm_control.composer.variation import distributions, rotations
+from dm_control.rl.control import Environment
 from dm_robotics.agentflow import spec_utils
 from dm_robotics.geometry import pose_distribution
 from dm_control.composer import Entity
@@ -42,6 +43,10 @@ class Agent:
     self.time_state = 0.1
     self.elapsed = 4.0
 
+  def pass_args(self, env: Environment, joint_names):
+    self.env = env
+    self.joint_names = joint_names
+
   def step(self, timestep: dm_env.TimeStep) -> np.ndarray:
     """
     Computes velocities in the x/y plane parameterized in time.
@@ -54,10 +59,13 @@ class Agent:
     # 'panda_tcp_rmat_control', 'panda_tcp_pose_control', 'panda_tcp_vel_control', 
     # 'panda_force', 'panda_torque', 'panda_gripper_width', 'panda_gripper_state', 
     # 'panda_twist_previous_action', 'time']
-
     time = timestep.observation['time'][0]
-
     action = np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
+
+    qpos_values = env.physics.data.qpos
+    for i, name in enumerate(self.joint_names):
+        print(f"{name}: {qpos_values[i]}")
+    print("\n")
     # The action space of the Cartesian 6D effector corresponds to the
     # linear and angular velocities in x, y and z directions respectively 
     # Demo State Machine:
@@ -144,7 +152,7 @@ if __name__ == '__main__':
   wrist = None
   ee = None
   for i, body in enumerate(bodies):
-    if hasattr(body, "name") and body.name == "panda_rightfinger":
+    if hasattr(body, "name") and body.name == "panda_hand":
       ee = body
       print(f"[{ee.name}] was found")
       break 
@@ -161,15 +169,24 @@ if __name__ == '__main__':
     'weld',
     body1=ee,  
     body2=wrist, 
-    relpose=[0.025, -0.05, 0.075, # Posición de la muñeca desde el efector del robot
+    relpose=[0.025, 0.0, 0.115, # Posición de la muñeca desde el efector del robot
             0.0, 0.87, -0.50, 0.0],  # Rotación de la muñeca respecto del efector delo robot (180º,0º,60º)
   )
+
+  # Obtain joint names of the resulting enviroment
+  jnts = panda_env._arena.mjcf_model.worldbody.find_all('joint')
+  joint_names = []
+  for i, jnt in enumerate(jnts):
+    if hasattr(jnt, "name"): 
+      print(f"joint[{i}] : {jnt.name}")
+      joint_names.append(jnt.name)
 
   with panda_env.build_task_environment() as env:
     # Print the full action, observation and reward specification
     utils.full_spec(env)
     # Initialize the agent
     agent = Agent(env.action_spec())
+    agent.pass_args(env, joint_names)
     # Run the environment and agent inside the GUI.
     # app = utils.ApplicationWithPlot()
     app = utils.ApplicationWithPlot(width=1440, height=860)
