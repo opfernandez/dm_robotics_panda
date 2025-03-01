@@ -47,8 +47,9 @@ class Agent:
     self._spec = spec
     self.state = 0
     self.time_state = 0.1
-    self.elapsed = 4.0
     self.env_reset = True
+    self.step_time = 0.49 # segundos que va a pasar el agente realizando un mismo movimiento
+    self.action = np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
     # Create an instance of the communication object and start communication
     self.agent_side = AgentSide(ipbaselinespart, portbaselinespart)
     self.agent_side.startComms()
@@ -57,16 +58,77 @@ class Agent:
     self.env = env
     self.joint_names = joint_names
   
-  def format_obs(self, qpos, time, forces):
-    # Add time to observations
-    obs = {'time': time}
-    # Add franka and myoarm joints values to observations
-    for i, name in enumerate(self.joint_names):
-        obs.update({name : qpos[i]})
-    # Add franka's wrist forces to observations
-    obs.update({'F_wristX': forces[0],
-                'F_wristY': forces[1],
-                'F_wristZ': forces[2]})
+  def calculate_trajectory(ef_position):
+    state = 1
+    cont = 1
+    cycles = 29
+    posX = ef_position[0]; posY = ef_position[1]; posZ = ef_position[2]
+    constant_vel = 0.05
+    incT = 0.1
+    trajectory = np.zeros((120, 3), dtype=np.float32)
+    trajectory[0] = [posX, posY, posZ]
+    for step in range(1, 120): # Ideal square trajectory
+      if state == 0: # Move through Z axis
+        posZ += incT * constant_vel
+        cont += 1
+        if cont >= cycles:
+          state = 1
+          cont = 0
+      elif state == 1: # Move through X axis
+        posX += incT * constant_vel
+        cont += 1
+        if cont >= cycles:
+          state = 2
+          cont = 0
+      elif state == 2: # Move through Y axis
+        posY += incT * (-1*constant_vel)
+        cont += 1
+        if cont >= cycles:
+          state = 3
+          cont = 0
+      elif state == 3: # Move through X axis
+        posX += incT * (-1*constant_vel)
+        cont += 1
+        if cont >= cycles:
+          state = 4
+          cont = 0
+      elif state == 4: # Move through Y axis
+        posY += incT * constant_vel
+        cont += 1
+        if cont >= cycles:
+          state = 1
+          cont = 0
+      trajectory[step] = [posX, posY, posZ]
+    return trajectory
+  
+  def calculate_eu_dist(self, step, ef_position):
+    # Timestep advance 0.1 at a time, to get index is mandatory multiply the timestep by 10
+    ideal_position = self.trajectory[(step-1)*10]
+    # Calculate euclidean distance 
+    return np.linalg.norm(ideal_position - ef_position)
+
+  def format_obs(self, force, torque, vel_ef, eu_dist):
+    """
+    Observation space is conformed by:
+    - force: End effector measured force (axis X,Y,Z).
+    - torque: End effector measured torque (axis X,Y,Z).
+    - ef_vel: End effector measured Cartesian velocity (axis X,Y,Z, roll, pitch, yaw).
+    - eu_dist: Euclidean distance between end effector position and trajectory step.
+    """
+    # Create observation dict
+    obs = {'F_wristX': force[0],
+                'F_wristY': force[1],
+                'F_wristZ': force[2],
+                'T_wristX': torque[0],
+                'T_wristY': torque[1],
+                'T_wristZ': torque[2],
+                'Vx': vel_ef[0],
+                'Vy': vel_ef[1],
+                'Vz': vel_ef[2],
+                'roll': vel_ef[3],
+                'pitch': vel_ef[4],
+                'yaw': vel_ef[5],
+                'eu_dist': eu_dist}
     return obs
 
   def step(self, timestep: dm_env.TimeStep) -> np.ndarray:
@@ -82,100 +144,92 @@ class Agent:
     # 'panda_force', 'panda_torque', 'panda_gripper_width', 'panda_gripper_state', 
     # 'panda_twist_previous_action', 'time']
     time = timestep.observation['time'][0]
-    forces = timestep.observation['panda_force']
-    qpos_values = env.physics.data.qpos
-
-    # for i, name in enumerate(self.joint_names):
-    #     print(f"{name}: {qpos_values[i]}")
-    # print("\n")
-    # The action space of the Cartesian 6D effector corresponds to the
-    # linear and angular velocities in x, y and z directions respectively 
-    # Demo State Machine:
-    action = np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
-    if self.state == 0: # Move through Y-Z axis
-      action[0] = 0.0 # Vel X
-      action[1] = -0.065 # Vel Y
-      action[2] = 0.065 # Vel Z
-      if (time - self.time_state) > self.elapsed:
-        self.state = 1
-        self.time_state = time
-    elif self.state == 1: # Move through X axis
-      action[0] = 0.065 # Vel X
-      action[1] = 0.0 # Vel Y
-      action[2] = 0.0 # Vel Z
-      if (time - self.time_state) > self.elapsed:
-        self.state = 2
-        self.time_state = time
-    elif self.state == 2: # Backwards through X axis
-      action[0] = -0.065 # Vel X
-      action[1] = 0.0 # Vel Y
-      action[2] = 0.0 # Vel Z
-      if (time - self.time_state) > self.elapsed:
-        self.state = 3
-        self.time_state = time
-    elif self.state == 3: # Backwards throught Y-Z axis
-      action[0] = 0.0 # Vel X
-      action[1] = 0.065 # Vel Y
-      action[2] = -0.065 # Vel Z
-      if (time - self.time_state) > self.elapsed:
-        self.state = 4
-        self.time_state = time
-    else:
-      action[0] = 0.0 # Vel X
-      action[1] = 0.0 # Vel Y
-      action[2] = 0.0 # Vel Z
-
+    force = timestep.observation['panda_force']
+    torque = timestep.observation['panda_torque']
+    vel_ef = timestep.observation['panda_tcp_vel_world']
+    ef_position = [timestep.observation['panda_tcp_pose'][0], # X
+                  timestep.observation['panda_tcp_pose'][1], # Y
+                  timestep.observation['panda_tcp_pose'][2]] # Z
+    # Calculate trajectory on first step:
+    if self.env_reset:
+      self.trajectory = self.calculate_trajectory(ef_position)
+    eu_dist = self.calculate_eu_dist(time, ef_position)
     ### COMMUNICATE WITH STABLE-BASELINES ###
-    # print(f"Agent-Side:\tGoing on a new step...\n")
-    try:
-      # Receive the indicator of what to do
-      action_type = self.agent_side.readWhatToDo()
-      # Select the case
-      if action_type == AgentSide.WhatToDo.SEND_OBS_REC_ACTION:
-          # Create observation dict
-          obs = self.format_obs(qpos_values, time, forces)
-          # Send observation dict and receive actions dict
-          action_sb = self.agent_side.sendObsRecAct(obs)
-          print(f"Agent-Side:\tReceived STEP action:  {action_sb}\n")
-
-      elif action_type == AgentSide.WhatToDo.RESET_SEND_OBS:
-          print("\nRESETTING ENV TO START NEW EPISODE...\n")
-          if self.env_reset:
-            obs = self.format_obs(qpos_values, time, forces)
-            self.agent_side.resetSendObs(obs)
+    if self.env_reset or ((time - self.time_state) > self.step_time):
+      # print(f"Agent-Side:\tGoing on a new step...\n")
+      try:
+        # Receive the indicator of what to do
+        action_type = self.agent_side.readWhatToDo()
+        # Select the case
+        if action_type == AgentSide.WhatToDo.SEND_OBS_REC_ACTION:
+            # Create observation dict
+            obs = self.format_obs(force, torque, vel_ef, eu_dist)
+            # Send observation dict and receive actions dict
+            sb_action = self.agent_side.sendObsRecAct(obs)
+            self.action = np.array(list(sb_action.values()), dtype=np.float32)
             self.env_reset = False
-          else:
-            self.reset()
-            return np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
+            print(f"Agent-Side:\tReceived STEP action:  {sb_action}\n")
 
-      elif action_type == AgentSide.WhatToDo.FINISH:
-          # Finish training
-          print("Experiment finished.")
-          self.agent_side.stopComms()
-          sys.exit()
-    except Exception as e:
-      print(f"Error in communication: {e}")
-      print("Finishing experiment ...")
+        elif action_type == AgentSide.WhatToDo.RESET_SEND_OBS:
+            print("\nRESETTING ENV TO START NEW EPISODE...\n")
+            if self.env_reset:
+              obs = self.format_obs(force, torque, vel_ef, eu_dist)
+              self.agent_side.resetSendObs(obs)
+              # Force receiving first action at first step
+              self.agent_side.stopComms()
+              self.agent_side.startComms()
+              wtd = self.agent_side.readWhatToDo()
+              if wtd == AgentSide.WhatToDo.FINISH:
+                sb_action = self.agent_side.sendObsRecAct(obs)
+                self.action = np.array(list(sb_action.values()), dtype=np.float32)
+                self.env_reset = False
+              else:
+                print("Error ocurred during first communication after reseting the env.")
+            else:
+              self.reset()
+              return np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
+
+        elif action_type == AgentSide.WhatToDo.FINISH:
+            # Finish training
+            print("Experiment finished.")
+            self.agent_side.stopComms()
+            sys.exit()
+      except Exception as e:
+        print(f"Error in communication: {e}")
+        print("Finishing experiment ...")
+        self.agent_side.stopComms()
+        sys.exit()
       self.agent_side.stopComms()
-      sys.exit()
+      self.agent_side.startComms()
+      self.time_state = time
 
-    self.agent_side.stopComms()
-    self.agent_side.startComms()
-    return action
+    return self.action
 
   def reset(self):
     timestep = self.env.reset()
     time = timestep.observation['time'][0]
-    forces = timestep.observation['panda_force']
-    qpos_values = env.physics.data.qpos
+    force = timestep.observation['panda_force']
+    torque = timestep.observation['panda_torque']
+    vel_ef = timestep.observation['panda_tcp_vel_world']
+    ef_position = [timestep.observation['panda_tcp_pose'][0], # X
+                  timestep.observation['panda_tcp_pose'][1], # Y
+                  timestep.observation['panda_tcp_pose'][2]] # Z
+    eu_dist = self.calculate_eu_dist(time, ef_position)
     # reset time-state (for state machine)
     self.time_state = time
     # Create observation dict
-    obs = self.format_obs(qpos_values, time, forces)
+    obs = self.format_obs(force, torque, vel_ef, eu_dist)
     # Just send observation dict
     self.agent_side.resetSendObs(obs)
+    # Force receiving first action at first step
     self.agent_side.stopComms()
     self.agent_side.startComms()
+    wtd = self.agent_side.readWhatToDo()
+    if wtd == AgentSide.WhatToDo.FINISH:
+      sb_action = self.agent_side.sendObsRecAct(obs)
+      self.action = np.array(list(sb_action.values()), dtype=np.float32)
+    else:
+      print("Error ocurred during first communication after reseting the env.")
 
 
 if __name__ == '__main__':
