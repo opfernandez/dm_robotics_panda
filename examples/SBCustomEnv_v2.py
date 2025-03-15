@@ -142,47 +142,58 @@ class CustomEnv(Env):
         reward = self.calculate_reward(obs_array, step_cont)
         return obs_array, reward, done, {}
 
-# Create custom enviroment
-env = CustomEnv(port=49055)
 
-# Some Gaussian noise on acctions for safer sim-world transfer
-n_actions = env.action_space.shape[-1]
-action_noise = NormalActionNoise(mean=np.zeros(n_actions), sigma=0.1 * np.ones(n_actions))
+########################
+#         TD3          #
+########################
 
-# Initilize de model
-tensorboard_log_path = "/home/oscar/TFM/train_logs"
-model = TD3("MlpPolicy", env,
-            learning_rate=0.002, 
-            learning_starts=1000,
-            batch_size = 256,
-            train_freq=1,
-            gradient_steps=1,
-            action_noise=action_noise, 
-            target_noise_clip=0.1, 
-            verbose=1, 
-            tensorboard_log=tensorboard_log_path)
+# # Create custom enviroment
+# env = CustomEnv(port=49055)
 
-# Train the model
-callback_max_ep = StopTrainingOnMaxEpisodes(max_episodes=5e6, verbose=1)
-pb_callback = ProgressBarCallback()
-checkpoint_callback = CheckpointCallback(
-    save_freq=25000,  # Guardar cada 100 pasos, NO episodios
-    save_path="/home/oscar/TFM",
-    name_prefix="td3_panda_v3"
-)
+# # Some Gaussian noise on acctions for safer sim-world transfer
+# n_actions = env.action_space.shape[-1]
+# action_noise = NormalActionNoise(mean=np.zeros(n_actions), sigma=0.1 * np.ones(n_actions))
+
+# # Initilize de model
+# tensorboard_log_path = "/home/oscar/TFM/train_logs"
+# model = TD3("MlpPolicy", env,
+#             learning_rate=0.002, 
+#             learning_starts=1000,
+#             batch_size = 256,
+#             train_freq=1,
+#             gradient_steps=1,
+#             action_noise=action_noise, 
+#             target_noise_clip=0.1, 
+#             verbose=1, 
+#             tensorboard_log=tensorboard_log_path)
+
+# # Train the model
+# callback_max_ep = StopTrainingOnMaxEpisodes(max_episodes=5e6, verbose=1)
+# pb_callback = ProgressBarCallback()
+# checkpoint_callback = CheckpointCallback(
+#     save_freq=25000,  # Guardar cada 100 pasos, NO episodios
+#     save_path="/home/oscar/TFM",
+#     name_prefix="td3_panda_v3"
+# )
 
 
-callbacks = CallbackList([pb_callback, callback_max_ep, checkpoint_callback])
-model.learn(int(1e10), callback=callbacks)
+# callbacks = CallbackList([pb_callback, callback_max_ep, checkpoint_callback])
+# model.learn(int(1e10), callback=callbacks)
 
-# Save the resulting model
-model.save("TD3-SB3_v2")
+# # Save the resulting model
+# model.save("TD3-SB3_v2")
 
 
 ########################
 #         SAC          #
 ########################
 
+# # Create custom enviroment
+# env = CustomEnv(port=49055)
+
+# # Some Gaussian noise on acctions for safer sim-world transfer
+# n_actions = env.action_space.shape[-1]
+# action_noise = NormalActionNoise(mean=np.zeros(n_actions), sigma=0.1 * np.ones(n_actions))
 
 # tensorboard_log_path = "/home/oscar/TFM/train_logs"
 # model = SAC("MlpPolicy", env,
@@ -210,5 +221,5 @@ model.save("TD3-SB3_v2")
 # model.learn(int(1e10), callback=callbacks)
 
 # # Save the resulting model
-# model.save("SAC-SB3_v2")
+# model.save("SAC-SB3")
 
