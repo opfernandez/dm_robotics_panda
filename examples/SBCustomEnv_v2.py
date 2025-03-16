@@ -21,14 +21,14 @@ class CustomEnv(Env):
         - force: End effector measured force (axis X,Y,Z). [0, 1, 2]
         - torque: End effector measured torque (axis X,Y,Z). [3, 4, 5]
         - ef_vel: End effector measured Cartesian velocity (axis X,Y,Z, roll, pitch, yaw). [6, 7, 8, 9, 10, 11]
-        - eu_dist: Euclidean distance between end effector position and trajectory step. [13]
+        - eu_dist: Euclidean distance between end effector position and trajectory step. [12]
         """
         self.observation_space = Box(low=-np.inf, high=np.inf, shape=(13,), dtype=np.float32)
         # The action space are the Cartesian Velocities (3-translations, 3-rotations)
-        lineal_vel = 0.75
-        angular_vel = 1.0
-        low_ap_limits = np.array([-lineal_vel, -lineal_vel, -lineal_vel, -angular_vel, -angular_vel, -angular_vel], dtype=np.float16)
-        up_ap_limits = np.array([lineal_vel, lineal_vel, lineal_vel, angular_vel, angular_vel, angular_vel], dtype=np.float16)
+        self.lineal_vel = 0.75
+        self.angular_vel = 1.0
+        low_ap_limits = np.array([-self.lineal_vel, -self.lineal_vel, -self.lineal_vel, -self.angular_vel, -self.angular_vel, -self.angular_vel], dtype=np.float16)
+        up_ap_limits = np.array([self.lineal_vel, self.lineal_vel, self.lineal_vel, self.angular_vel, self.angular_vel, self.angular_vel], dtype=np.float16)
         self.action_space = Box(low=low_ap_limits, high=up_ap_limits, shape=(6,), dtype=np.float16)
         self.end_ep_cont = 0
     
@@ -60,21 +60,26 @@ class CustomEnv(Env):
             Reward(eu_dist) = 100 - np.clip((gain*obs[-1]), 0, 100)
             Reward(effort) -> If torque or force threshold is exceeded the agent is punished with -100.
             Reward(continuity) = 5*step_cont -> rewarding the agent for providing continuous and non-charging cinematics in causes that end the episode
+            rw_energy = 100*energy / max_energy -> reward used to minimize using high ef cartesian velocities
         """
         rw_effort = 0.0
         rw_dist = 0.0
         gain = 500.0
         force_threshold = 20
         torque_threshold = 40
+        max_energy = 3*self.lineal_vel + 3*self.angular_vel
+        energy = np.sum(np.abs(obs[6:12]))
+        rw_energy = 100*energy / max_energy
         # Check force and torque thresholds
-        force_check = np.any(np.abs(obs[0:4]) > force_threshold)
-        torque_check = np.any(np.abs(obs[4:7]) > torque_threshold)
+        force_check = np.any(np.abs(obs[0:3]) > force_threshold)
+        torque_check = np.any(np.abs(obs[3:6]) > torque_threshold)
         if force_check or torque_check:
             rw_effort = 100.0
         rw_dist = 100 - np.clip((gain*obs[-1]), 0, 100)
         rw_continuity = 2 * step_cont
-        total_rw = rw_dist+rw_continuity-rw_effort
+        total_rw = rw_dist+rw_continuity-rw_effort-rw_energy
         # total_rw = rw_dist-rw_effort
+        print(f"rw_dist={rw_dist}, rw_continuity={rw_continuity}, rw_effort={-rw_effort}, rw_energy={rw_energy}")
         print(f"\nGenerated Reward: [{total_rw}]\n")
         return total_rw
 
@@ -89,8 +94,8 @@ class CustomEnv(Env):
         force_threshold = 48
         torque_threshold = 60
         # Check force and torque thresholds
-        force_check = np.any(np.abs(obs[0:4]) > force_threshold)
-        torque_check = np.any(np.abs(obs[4:7]) > torque_threshold)
+        force_check = np.any(np.abs(obs[0:3]) > force_threshold)
+        torque_check = np.any(np.abs(obs[3:6]) > torque_threshold)
         if force_check or torque_check:
             done = True
             self.end_ep_cont = 0
@@ -188,38 +193,37 @@ class CustomEnv(Env):
 #         SAC          #
 ########################
 
-# # Create custom enviroment
-# env = CustomEnv(port=49055)
+# Create custom enviroment
+env = CustomEnv(port=49056)
 
-# # Some Gaussian noise on acctions for safer sim-world transfer
-# n_actions = env.action_space.shape[-1]
-# action_noise = NormalActionNoise(mean=np.zeros(n_actions), sigma=0.1 * np.ones(n_actions))
+# Some Gaussian noise on acctions for safer sim-world transfer
+n_actions = env.action_space.shape[-1]
+action_noise = NormalActionNoise(mean=np.zeros(n_actions), sigma=0.1 * np.ones(n_actions))
 
-# tensorboard_log_path = "/home/oscar/TFM/train_logs"
-# model = SAC("MlpPolicy", env,
-#             learning_rate=0.0003, 
-#             learning_starts=1000,
-#             batch_size = 256,
-#             train_freq=1,
-#             gradient_steps=1,
-#             action_noise=action_noise, 
-#             target_noise_clip=0.1, 
-#             verbose=1, 
-#             tensorboard_log=tensorboard_log_path)
+tensorboard_log_path = "/home/oscar/TFM/train_logs"
+model = SAC("MlpPolicy", env,
+            learning_rate=0.0003, 
+            learning_starts=1000,
+            batch_size = 256,
+            train_freq=1,
+            gradient_steps=1,
+            action_noise=action_noise,  
+            verbose=1, 
+            tensorboard_log=tensorboard_log_path)
 
-# # Train the model
-# callback_max_ep = StopTrainingOnMaxEpisodes(max_episodes=5e6, verbose=1)
-# pb_callback = ProgressBarCallback()
-# checkpoint_callback = CheckpointCallback(
-#     save_freq=25000,  # Guardar cada 100 pasos, NO episodios
-#     save_path="/home/oscar/TFM",
-#     name_prefix="sac_panda_v3"
-# )
+# Train the model
+callback_max_ep = StopTrainingOnMaxEpisodes(max_episodes=5e6, verbose=1)
+pb_callback = ProgressBarCallback()
+checkpoint_callback = CheckpointCallback(
+    save_freq=25000,  # Guardar cada 100 pasos, NO episodios
+    save_path="/home/oscar/TFM",
+    name_prefix="sac_panda_v3"
+)
 
 
-# callbacks = CallbackList([pb_callback, callback_max_ep, checkpoint_callback])
-# model.learn(int(1e10), callback=callbacks)
+callbacks = CallbackList([pb_callback, callback_max_ep, checkpoint_callback])
+model.learn(int(1e10), callback=callbacks)
 
-# # Save the resulting model
-# model.save("SAC-SB3")
+# Save the resulting model
+model.save("SAC-SB3")
 
