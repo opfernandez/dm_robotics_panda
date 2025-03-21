@@ -25,8 +25,8 @@ class CustomEnv(Env):
         """
         self.observation_space = Box(low=-np.inf, high=np.inf, shape=(13,), dtype=np.float32)
         # The action space are the Cartesian Velocities (3-translations, 3-rotations)
-        self.lineal_vel = 0.75
-        self.angular_vel = 1.0
+        self.lineal_vel = 0.25
+        self.angular_vel = 0.25
         low_ap_limits = np.array([-self.lineal_vel, -self.lineal_vel, -self.lineal_vel, -self.angular_vel, -self.angular_vel, -self.angular_vel], dtype=np.float16)
         up_ap_limits = np.array([self.lineal_vel, self.lineal_vel, self.lineal_vel, self.angular_vel, self.angular_vel, self.angular_vel], dtype=np.float16)
         self.action_space = Box(low=low_ap_limits, high=up_ap_limits, shape=(6,), dtype=np.float16)
@@ -65,22 +65,26 @@ class CustomEnv(Env):
         rw_effort = 0.0
         rw_dist = 0.0
         gain = 500.0
-        force_threshold = 20
-        torque_threshold = 40
+        force_threshold = 15
+        torque_threshold = 30
         max_energy = 3*self.lineal_vel + 3*self.angular_vel
         energy = np.sum(np.abs(obs[6:12]))
         rw_energy = 100*energy / max_energy
+        rw_energy = np.clip(rw_energy, 0, 100)
         # Check force and torque thresholds
         force_check = np.any(np.abs(obs[0:3]) > force_threshold)
         torque_check = np.any(np.abs(obs[3:6]) > torque_threshold)
         if force_check or torque_check:
-            rw_effort = 100.0
-        rw_dist = 100 - np.clip((gain*obs[-1]), 0, 100)
-        rw_continuity = 2 * step_cont
+            rw_effort = 200.0
+        rw_dist = 200 - np.clip((gain*obs[-1]), 0, 200)
+        rw_continuity = (100/24) * step_cont
         total_rw = rw_dist+rw_continuity-rw_effort-rw_energy
+        # Max reward = 300; Min reward = -300.
+        # SAC has better results with normalizer reward range between +-10 (rw/30)
+        total_rw /= 30.0
         # total_rw = rw_dist-rw_effort
-        print(f"rw_dist={rw_dist}, rw_continuity={rw_continuity}, rw_effort={-rw_effort}, rw_energy={rw_energy}")
-        print(f"\nGenerated Reward: [{total_rw}]\n")
+        print(f"rw_dist={rw_dist:.2f}, rw_continuity={rw_continuity:.2f}, rw_effort={-rw_effort:.2f}, rw_energy={-rw_energy:.2f}")
+        print(f"Generated Reward: [{total_rw:.2f}]")
         return total_rw
 
     def end_episode(self, obs):
@@ -99,16 +103,14 @@ class CustomEnv(Env):
         if force_check or torque_check:
             done = True
             self.end_ep_cont = 0
-            print("\nSending DONE\n")
         # Check trajectory end
         if self.end_ep_cont >= 24:
             done = True
             self.end_ep_cont = 0
-            print("\nSending DONE\n")
         return step_cont, done
 
     def step(self, action):
-        print("SB-Side:\tGoing on a new step...\n")
+        #print("SB-Side:\tGoing on a new step...\n")
         ###########################################################
         # actionn = np.zeros(shape=(7,), dtype=np.float32)
         # if self.end_ep_cont < 6: # Move through Y-Z axis
@@ -137,7 +139,11 @@ class CustomEnv(Env):
         # print(action_dict)
         # Get observations dict from agent and send actions dict
         _, obs, _ = self.baselines_side.stepSendActGetObs(action_dict, timeout=300)
-        #print(obs)
+        print("--"*30)
+        print(f"Received obs:", end=" ")
+        print_obs = list(obs.items())[6:12]
+        for key, val in print_obs:
+            print(f"{key}: {val:.3f}", end=", ")
         # Convertfrom dict to np.parray (used by sb3)
         obs_array = np.array(list(obs.values()), dtype=np.float32)
         #print(f"SB-Side:\tObservation received after step:{obs_array[:10]}\n")
@@ -145,6 +151,9 @@ class CustomEnv(Env):
         step_cont, done = self.end_episode(obs_array)
         # Calculate reward based on observations 
         reward = self.calculate_reward(obs_array, step_cont)
+        print("--"*30)
+        if done:
+            print("\nSending DONE\n")
         return obs_array, reward, done, {}
 
 
@@ -152,7 +161,7 @@ class CustomEnv(Env):
 #         TD3          #
 ########################
 
-# # Create custom enviroment
+# # # Create custom enviroment
 # env = CustomEnv(port=49055)
 
 # # Some Gaussian noise on acctions for safer sim-world transfer
@@ -194,7 +203,7 @@ class CustomEnv(Env):
 ########################
 
 # Create custom enviroment
-env = CustomEnv(port=49056)
+env = CustomEnv(port=49057)
 
 # Some Gaussian noise on acctions for safer sim-world transfer
 n_actions = env.action_space.shape[-1]
@@ -215,9 +224,9 @@ model = SAC("MlpPolicy", env,
 callback_max_ep = StopTrainingOnMaxEpisodes(max_episodes=5e6, verbose=1)
 pb_callback = ProgressBarCallback()
 checkpoint_callback = CheckpointCallback(
-    save_freq=25000,  # Guardar cada 100 pasos, NO episodios
+    save_freq=50000,  # Guardar cada 100 pasos, NO episodios
     save_path="/home/oscar/TFM",
-    name_prefix="sac_panda_v3"
+    name_prefix="sac_panda_v4"
 )
 
 

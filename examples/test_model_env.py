@@ -26,8 +26,7 @@ from dm_robotics.geometry import pose_distribution
 from dm_control.composer import Entity
 import csv
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
-from rl_spin_decoupler.spindecoupler import AgentSide
+from stable_baselines3 import SAC, TD3
 
 class MyoArm(Entity):
   """An entity class that wraps an MJCF model without any additional logic."""
@@ -45,17 +44,17 @@ class Agent:
   current observations and rewards.
   """
 
-  def __init__(self, spec: specs.BoundedArray, ipbaselinespart:str, portbaselinespart:int) -> None:
+  def __init__(self, spec: specs.BoundedArray, model_path) -> None:
     self._spec = spec
     self.state = 0
     self.time_state = 0.1
     self.env_reset = True
     self.init = True
     self._waitingforrlcommands = True
-    self.step_time = 0.15 # segundos que va a pasar el agente realizando un mismo movimiento
+    self.step_time = 0.65 # segundos que va a pasar el agente realizando un mismo movimiento
     self.action = np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
-    # Create an instance of the communication object and start communication
-    self.agent_side = AgentSide(ipbaselinespart, portbaselinespart)
+    # Load trained model
+    self.model = SAC.load(model_path)
 
   def pass_args(self, env: Environment, joint_names):
     self.env = env
@@ -135,7 +134,7 @@ class Agent:
 
   def calculate_eu_dist(self, step, ef_position):
     # Timestep advance 0.1 at a time, to get index is mandatory multiply the timestep by 10
-    ideal_position = self.trajectory[int((step*10)-1)]
+    ideal_position = self.trajectory[int(((step*10)-1)%240)]
     # Calculate euclidean distance 
     eud = np.linalg.norm(ideal_position - ef_position)
     return eud
@@ -164,71 +163,17 @@ class Agent:
       self.trajectory = self.calculate_trajectory(ef_position)
       self.init = False
     eu_dist = self.calculate_eu_dist(time_t, ef_position)
-    ### COMMUNICATE WITH STABLE-BASELINES ###
-
-    if not self._waitingforrlcommands:
-      if self.env_reset or ((time_t - self.time_state) >= self.step_time):
-        # Create observation dict
-        obs = self.format_obs(force, torque, vel_ef, eu_dist)
-        self.agent_side.stepSendObs(obs) # RL was waiting for this; no reward is actually needed here
-        self._waitingforrlcommands = True
-    else:
-        # Receive the indicator of what to do
-        whattodo = self.agent_side.readWhatToDo()
-        if whattodo is not None:
-          # Select the case
-          if  whattodo[0] == AgentSide.WhatToDo.REC_ACTION_SEND_OBS:
-              sb_action = whattodo[1]
-              lat = time_t - self.time_state
-              self._waitingforrlcommands = False # from now on, we are waiting to execute the action
-              self.agent_side.stepSendLastActDur(lat)
-              self.action = np.array(list(sb_action.values()), dtype=np.float32)
-              self.env_reset = False
-              print("--"*30)
-              print(f"Received STEP [{time_t:.2f}] action: {sb_action}") 
-              print(f"After [{lat:.2f}] time")
-              print("--"*30)
-
-          elif whattodo[0] == AgentSide.WhatToDo.RESET_SEND_OBS:
-              print("\nRESETTING ENV TO START NEW EPISODE...\n")
-              if self.env_reset:
-                obs = self.format_obs(force, torque, vel_ef, eu_dist)
-                self.agent_side.resetSendObs(obs)
-              else:
-                self.reset()
-                return self.action #np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
-
-          elif whattodo[0] == AgentSide.WhatToDo.FINISH:
-              # Finish training
-              print("Experiment finished.")
-              self.agent_side.stopComms()
-              sys.exit()
-          
-          else:
-              raise(ValueError("Unknown indicator data"))
-          self.time_state = time_t
+    ### INFERENCE ###
+    if (time_t - self.time_state) >= self.step_time:
+      self.action = np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
+      obs = self.format_obs(force, torque, vel_ef, eu_dist)
+      obs_array = np.array(list(obs.values()), dtype=np.float32)
+      act, _states = self.model.predict(obs_array, deterministic=True)
+      self.action[0:6] = act
+      print(f"Time [{time_t}]")
+      print(self.action)
+      self.time_state = time_t
     return self.action
-
-  def reset(self):
-    self._waitingforrlcommands = True
-    self.env_reset = True
-    timestep = self.env.reset()
-    time_t = timestep.observation['time'][0]
-    force = timestep.observation['panda_force']
-    torque = timestep.observation['panda_torque']
-    vel_ef = timestep.observation['panda_tcp_vel_world']
-    ef_position = [timestep.observation['panda_tcp_pose'][0], # X
-                  timestep.observation['panda_tcp_pose'][1], # Y
-                  timestep.observation['panda_tcp_pose'][2]] # Z
-    eu_dist = self.calculate_eu_dist(time_t, ef_position)
-    # reset time-state (for state machine)
-    self.time_state = time_t
-    # Create observation dict
-    obs = self.format_obs(force, torque, vel_ef, eu_dist)
-    # Just send observation dict
-    self.agent_side.resetSendObs(obs)
-    #time.sleep(0.1)
-    print(f"Agent-Side:\tRESET obs send\n")
 
 
 if __name__ == '__main__':
@@ -312,9 +257,10 @@ if __name__ == '__main__':
     # Print the full action, observation and reward specification
     utils.full_spec(env)
     # Initialize the agent
-    agent = Agent(env.action_spec(), '192.168.0.18', 49057)
+    agent = Agent(env.action_spec(), '/home/oscar/TFM/sac_panda_v3_500000_steps.zip')
+    #agent = Agent(env.action_spec(), '/home/oscar/TFM/td3_panda_v3_500000_steps.zip')
     agent.pass_args(env, joint_names)
     # Run the environment and agent inside the GUI.
-    # app = utils.ApplicationWithPlot(width=1440, height=860)
-    # app.launch(env, policy=agent.step)
-    run_loop.run(env, agent, [], max_steps=1e10, real_time=False)
+    app = utils.ApplicationWithPlot(width=1440, height=860)
+    app.launch(env, policy=agent.step)
+    # run_loop.run(env, agent, [], max_steps=1e10, real_time=False)
