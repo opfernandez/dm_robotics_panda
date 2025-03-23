@@ -104,7 +104,7 @@ class Agent:
       trajectory[step] = [posX, posY, posZ]
     return trajectory
 
-  def format_obs(self, force, torque, vel_ef, eu_dist):
+  def format_obs(self, force, torque, vel_ef, eu_dist, pos):
     """
     Observation space is conformed by:
     - force: End effector measured force (axis X,Y,Z).
@@ -125,7 +125,10 @@ class Agent:
                 'roll': vel_ef[3],
                 'pitch': vel_ef[4],
                 'yaw': vel_ef[5],
-                'eu_dist': eu_dist}
+                'eu_dist': eu_dist,
+                'X': pos[0],
+                'Y': pos[1],
+                'Z': pos[2],}
     return obs
 
   def save_data(self, file_name, data, mode):
@@ -169,7 +172,7 @@ class Agent:
     if not self._waitingforrlcommands:
       if self.env_reset or ((time_t - self.time_state) >= self.step_time):
         # Create observation dict
-        obs = self.format_obs(force, torque, vel_ef, eu_dist)
+        obs = self.format_obs(force, torque, vel_ef, eu_dist, ef_position)
         self.agent_side.stepSendObs(obs) # RL was waiting for this; no reward is actually needed here
         self._waitingforrlcommands = True
     else:
@@ -192,16 +195,15 @@ class Agent:
           elif whattodo[0] == AgentSide.WhatToDo.RESET_SEND_OBS:
               print("\nRESETTING ENV TO START NEW EPISODE...\n")
               if self.env_reset:
-                obs = self.format_obs(force, torque, vel_ef, eu_dist)
+                obs = self.format_obs(force, torque, vel_ef, eu_dist, ef_position)
                 self.agent_side.resetSendObs(obs)
               else:
                 self.reset()
-                return self.action #np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
+                #return self.action #np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
 
           elif whattodo[0] == AgentSide.WhatToDo.FINISH:
               # Finish training
               print("Experiment finished.")
-              self.agent_side.stopComms()
               sys.exit()
           
           else:
@@ -224,7 +226,7 @@ class Agent:
     # reset time-state (for state machine)
     self.time_state = time_t
     # Create observation dict
-    obs = self.format_obs(force, torque, vel_ef, eu_dist)
+    obs = self.format_obs(force, torque, vel_ef, eu_dist, ef_position)
     # Just send observation dict
     self.agent_side.resetSendObs(obs)
     #time.sleep(0.1)
@@ -312,7 +314,7 @@ if __name__ == '__main__':
     # Print the full action, observation and reward specification
     utils.full_spec(env)
     # Initialize the agent
-    agent = Agent(env.action_spec(), '192.168.0.18', 49057)
+    agent = Agent(env.action_spec(), '192.168.0.18', 49056)
     agent.pass_args(env, joint_names)
     # Run the environment and agent inside the GUI.
     # app = utils.ApplicationWithPlot(width=1440, height=860)

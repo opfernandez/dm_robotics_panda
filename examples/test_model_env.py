@@ -51,7 +51,7 @@ class Agent:
     self.env_reset = True
     self.init = True
     self._waitingforrlcommands = True
-    self.step_time = 0.65 # segundos que va a pasar el agente realizando un mismo movimiento
+    self.step_time = 0.55 # segundos que va a pasar el agente realizando un mismo movimiento
     self.action = np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
     # Load trained model
     self.model = SAC.load(model_path)
@@ -103,7 +103,7 @@ class Agent:
       trajectory[step] = [posX, posY, posZ]
     return trajectory
 
-  def format_obs(self, force, torque, vel_ef, eu_dist):
+  def format_obs(self, force, torque, vel_ef, eu_dist, pos):
     """
     Observation space is conformed by:
     - force: End effector measured force (axis X,Y,Z).
@@ -124,7 +124,10 @@ class Agent:
                 'roll': vel_ef[3],
                 'pitch': vel_ef[4],
                 'yaw': vel_ef[5],
-                'eu_dist': eu_dist}
+                'eu_dist': eu_dist,
+                'X': pos[0],
+                'Y': pos[1],
+                'Z': pos[2],}
     return obs
 
   def save_data(self, file_name, data, mode):
@@ -166,7 +169,7 @@ class Agent:
     ### INFERENCE ###
     if (time_t - self.time_state) >= self.step_time:
       self.action = np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
-      obs = self.format_obs(force, torque, vel_ef, eu_dist)
+      obs = self.format_obs(force, torque, vel_ef, eu_dist, ef_position)
       obs_array = np.array(list(obs.values()), dtype=np.float32)
       act, _states = self.model.predict(obs_array, deterministic=True)
       self.action[0:6] = act
@@ -257,8 +260,8 @@ if __name__ == '__main__':
     # Print the full action, observation and reward specification
     utils.full_spec(env)
     # Initialize the agent
-    agent = Agent(env.action_spec(), '/home/oscar/TFM/sac_panda_v3_500000_steps.zip')
-    #agent = Agent(env.action_spec(), '/home/oscar/TFM/td3_panda_v3_500000_steps.zip')
+    # agent = Agent(env.action_spec(), '/home/oscar/TFM/sac_panda_v3_500000_steps.zip')
+    agent = Agent(env.action_spec(), '/home/oscar/TFM/sac_panda_v5_400000_steps.zip')
     agent.pass_args(env, joint_names)
     # Run the environment and agent inside the GUI.
     app = utils.ApplicationWithPlot(width=1440, height=860)
