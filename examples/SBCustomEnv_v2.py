@@ -22,8 +22,10 @@ class CustomEnv(Env):
         - torque: End effector measured torque (axis X,Y,Z). [3, 4, 5]
         - ef_vel: End effector measured Cartesian velocity (axis X,Y,Z, roll, pitch, yaw). [6, 7, 8, 9, 10, 11]
         - eu_dist: Euclidean distance between end effector position and trajectory step. [12]
+        - ef_pos: Cartesian end effector position. X,Y,Z [13, 14, 15]
+        - time_step: current time step of the observation [16]
         """
-        self.observation_space = Box(low=-np.inf, high=np.inf, shape=(13,), dtype=np.float32)
+        self.observation_space = Box(low=-np.inf, high=np.inf, shape=(17,), dtype=np.float32)
         # The action space are the Cartesian Velocities (3-translations, 3-rotations)
         self.lineal_vel = 0.25
         self.angular_vel = 0.25
@@ -64,7 +66,7 @@ class CustomEnv(Env):
         """
         rw_effort = 0.0
         rw_dist = 0.0
-        gain = 500.0
+        gain = 2000.0 # 200/0.05 -> more eu_dist than 0.05m equals null reward
         force_threshold = 15
         torque_threshold = 30
         max_energy = 3*self.lineal_vel + 3*self.angular_vel
@@ -76,7 +78,7 @@ class CustomEnv(Env):
         torque_check = np.any(np.abs(obs[3:6]) > torque_threshold)
         if force_check or torque_check:
             rw_effort = 200.0
-        rw_dist = 200 - np.clip((gain*obs[-1]), 0, 200)
+        rw_dist = 200 - np.clip((gain*obs[12]), 0, 200)
         rw_continuity = (100/24) * step_cont
         total_rw = rw_dist+rw_continuity-rw_effort-rw_energy
         # Max reward = 300; Min reward = -300.
@@ -166,7 +168,7 @@ class CustomEnv(Env):
 
 # # Some Gaussian noise on acctions for safer sim-world transfer
 # n_actions = env.action_space.shape[-1]
-# action_noise = NormalActionNoise(mean=np.zeros(n_actions), sigma=0.1 * np.ones(n_actions))
+# action_noise = NormalActionNoise(mean=np.zeros(n_actions), sigma=0.05 * np.ones(n_actions))
 
 # # Initilize de model
 # tensorboard_log_path = "/home/oscar/TFM/train_logs"
@@ -176,8 +178,9 @@ class CustomEnv(Env):
 #             batch_size = 256,
 #             train_freq=1,
 #             gradient_steps=1,
-#             action_noise=action_noise, 
-#             target_noise_clip=0.1, 
+#             action_noise=action_noise,
+#             target_policy_noise=0.35, 
+#             target_noise_clip=0.75, 
 #             verbose=1, 
 #             tensorboard_log=tensorboard_log_path)
 
@@ -185,9 +188,9 @@ class CustomEnv(Env):
 # callback_max_ep = StopTrainingOnMaxEpisodes(max_episodes=5e6, verbose=1)
 # pb_callback = ProgressBarCallback()
 # checkpoint_callback = CheckpointCallback(
-#     save_freq=25000,  # Guardar cada 100 pasos, NO episodios
+#     save_freq=50000,  # Guardar cada 100 pasos, NO episodios
 #     save_path="/home/oscar/TFM",
-#     name_prefix="td3_panda_v3"
+#     name_prefix="td3_panda_v4"
 # )
 
 
@@ -195,7 +198,7 @@ class CustomEnv(Env):
 # model.learn(int(1e10), callback=callbacks)
 
 # # Save the resulting model
-# model.save("TD3-SB3_v2")
+# model.save("TD3-SB3_v4")
 
 
 ########################
@@ -203,7 +206,7 @@ class CustomEnv(Env):
 ########################
 
 # Create custom enviroment
-env = CustomEnv(port=49057)
+env = CustomEnv(port=49056)
 
 # Some Gaussian noise on acctions for safer sim-world transfer
 n_actions = env.action_space.shape[-1]
@@ -212,8 +215,9 @@ action_noise = NormalActionNoise(mean=np.zeros(n_actions), sigma=0.1 * np.ones(n
 tensorboard_log_path = "/home/oscar/TFM/train_logs"
 model = SAC("MlpPolicy", env,
             learning_rate=0.0003, 
-            learning_starts=1000,
+            learning_starts=2000,
             batch_size = 256,
+            gamma=0.999,
             train_freq=1,
             gradient_steps=1,
             action_noise=action_noise,  
@@ -224,9 +228,9 @@ model = SAC("MlpPolicy", env,
 callback_max_ep = StopTrainingOnMaxEpisodes(max_episodes=5e6, verbose=1)
 pb_callback = ProgressBarCallback()
 checkpoint_callback = CheckpointCallback(
-    save_freq=50000,  # Guardar cada 100 pasos, NO episodios
+    save_freq=50000,  # Guardar cada 50k steps 
     save_path="/home/oscar/TFM",
-    name_prefix="sac_panda_v4"
+    name_prefix="sac_panda_v7"
 )
 
 

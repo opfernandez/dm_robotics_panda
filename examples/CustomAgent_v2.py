@@ -104,7 +104,7 @@ class Agent:
       trajectory[step] = [posX, posY, posZ]
     return trajectory
 
-  def format_obs(self, force, torque, vel_ef, eu_dist, pos):
+  def format_obs(self, force, torque, vel_ef, eu_dist, pos, time_step):
     """
     Observation space is conformed by:
     - force: End effector measured force (axis X,Y,Z).
@@ -128,7 +128,8 @@ class Agent:
                 'eu_dist': eu_dist,
                 'X': pos[0],
                 'Y': pos[1],
-                'Z': pos[2],}
+                'Z': pos[2],
+                'time_step': time_step}
     return obs
 
   def save_data(self, file_name, data, mode):
@@ -168,11 +169,11 @@ class Agent:
       self.init = False
     eu_dist = self.calculate_eu_dist(time_t, ef_position)
     ### COMMUNICATE WITH STABLE-BASELINES ###
-
+    #print(f"time_t=[{time_t}], time_state=[{self.time_state}]")
     if not self._waitingforrlcommands:
       if self.env_reset or ((time_t - self.time_state) >= self.step_time):
         # Create observation dict
-        obs = self.format_obs(force, torque, vel_ef, eu_dist, ef_position)
+        obs = self.format_obs(force, torque, vel_ef, eu_dist, ef_position, time_t)
         self.agent_side.stepSendObs(obs) # RL was waiting for this; no reward is actually needed here
         self._waitingforrlcommands = True
     else:
@@ -195,11 +196,11 @@ class Agent:
           elif whattodo[0] == AgentSide.WhatToDo.RESET_SEND_OBS:
               print("\nRESETTING ENV TO START NEW EPISODE...\n")
               if self.env_reset:
-                obs = self.format_obs(force, torque, vel_ef, eu_dist, ef_position)
+                obs = self.format_obs(force, torque, vel_ef, eu_dist, ef_position, time_t)
                 self.agent_side.resetSendObs(obs)
               else:
                 self.reset()
-                #return self.action #np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
+                return self.action #np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
 
           elif whattodo[0] == AgentSide.WhatToDo.FINISH:
               # Finish training
@@ -226,7 +227,7 @@ class Agent:
     # reset time-state (for state machine)
     self.time_state = time_t
     # Create observation dict
-    obs = self.format_obs(force, torque, vel_ef, eu_dist, ef_position)
+    obs = self.format_obs(force, torque, vel_ef, eu_dist, ef_position, time_t)
     # Just send observation dict
     self.agent_side.resetSendObs(obs)
     #time.sleep(0.1)
