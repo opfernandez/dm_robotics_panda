@@ -1,16 +1,9 @@
-"""
-Imports a custom enviroment from a XML file.
-Produces a Cartesian motion using the Cartesian actuation mode.
-"""
-import math
 import os
-import sys
-import time
+import argparse
+import csv
 
-import mujoco as mj
 import dm_env
 import numpy as np
-from collections import defaultdict
 
 from dm_control import composer, mjcf
 from dm_env import specs
@@ -24,7 +17,6 @@ from dm_control.rl.control import Environment
 from dm_robotics.agentflow import spec_utils
 from dm_robotics.geometry import pose_distribution
 from dm_control.composer import Entity
-import csv
 
 from stable_baselines3 import SAC, TD3
 
@@ -44,17 +36,20 @@ class Agent:
   current observations and rewards.
   """
 
-  def __init__(self, spec: specs.BoundedArray, model_path) -> None:
+  def __init__(self, spec: specs.BoundedArray, model_path, home_path) -> None:
     self._spec = spec
     self.state = 0
     self.time_state = 0.1
     self.env_reset = True
     self.init = True
     self._waitingforrlcommands = True
-    self.step_time = 0.55 # segundos que va a pasar el agente realizando un mismo movimiento
+    self.step_time = 0.15 # segundos que va a pasar el agente realizando un mismo movimiento
     self.action = np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
     # Load trained model
     self.model = SAC.load(model_path)
+    self.rewrite = True
+    self.home_path = home_path
+    self.data_path = os.path.join(self.home_path, "data")
 
   def pass_args(self, env: Environment, joint_names):
     self.env = env
@@ -67,9 +62,9 @@ class Agent:
     posX = ef_position[0]; posY = ef_position[1]; posZ = ef_position[2]
     constant_vel = 0.05
     incT = 0.1
-    trajectory = np.zeros((240, 3), dtype=np.float32)
+    trajectory = np.zeros((480, 3), dtype=np.float32)
     trajectory[0] = [posX, posY, posZ]
-    for step in range(1, 240): # Ideal square trajectory
+    for step in range(1, 480): # Ideal square trajectory
       if state == 0: # Move through Z axis
         posZ += incT * constant_vel
         cont += 1
@@ -102,33 +97,34 @@ class Agent:
           cont = 0
       trajectory[step] = [posX, posY, posZ]
     return trajectory
-
-  def format_obs(self, force, torque, vel_ef, eu_dist, pos):
-    """
-    Observation space is conformed by:
-    - force: End effector measured force (axis X,Y,Z).
-    - torque: End effector measured torque (axis X,Y,Z).
-    - ef_vel: End effector measured Cartesian velocity (axis X,Y,Z, roll, pitch, yaw).
-    - eu_dist: Euclidean distance between end effector position and trajectory step.
-    """
-    # Create observation dict
-    obs = {'F_wristX': force[0],
-                'F_wristY': force[1],
-                'F_wristZ': force[2],
-                'T_wristX': torque[0],
-                'T_wristY': torque[1],
-                'T_wristZ': torque[2],
-                'Vx': vel_ef[0],
-                'Vy': vel_ef[1],
-                'Vz': vel_ef[2],
-                'roll': vel_ef[3],
-                'pitch': vel_ef[4],
-                'yaw': vel_ef[5],
-                'eu_dist': eu_dist,
-                'X': pos[0],
-                'Y': pos[1],
-                'Z': pos[2],}
-    return obs
+  
+  def format_obs(self, force, torque, vel_ef, dist, time_step):
+        """
+        Observation space is conformed by:
+        - force: End effector measured force (axis X,Y,Z).
+        - torque: End effector measured torque (axis X,Y,Z).
+        - ef_vel: End effector measured Cartesian velocity (axis X,Y,Z, roll, pitch, yaw).
+        - dist: Distance between end effector position and ideal trajectory position.
+        - time_step: Time of current step.
+        """
+        # Create observation dict
+        obs = {'F_wristX': force[0],
+                    'F_wristY': force[1],
+                    'F_wristZ': force[2],
+                    'T_wristX': torque[0],
+                    'T_wristY': torque[1],
+                    'T_wristZ': torque[2],
+                    'Vx': vel_ef[0],
+                    'Vy': vel_ef[1],
+                    'Vz': vel_ef[2],
+                    'roll': vel_ef[3],
+                    'pitch': vel_ef[4],
+                    'yaw': vel_ef[5],
+                    'X_dif': dist[0],
+                    'Y_dif': dist[1],
+                    'Z_dif': dist[2],
+                    'time_step': time_step}
+        return obs
 
   def save_data(self, file_name, data, mode):
     with open(file_name, mode=mode, newline="") as file:
@@ -137,11 +133,18 @@ class Agent:
 
   def calculate_eu_dist(self, step, ef_position):
     # Timestep advance 0.1 at a time, to get index is mandatory multiply the timestep by 10
-    ideal_position = self.trajectory[int(((step*10)-1)%240)]
+    ideal_position = self.trajectory[int(((step*10)-1)%480)]
     # Calculate euclidean distance 
     eud = np.linalg.norm(ideal_position - ef_position)
     return eud
 
+  def calculate_dist(self, step, ef_position):
+        # Timestep advance 0.1 at a time, to get index is mandatory multiply the timestep by 10
+        ideal_position = self.trajectory[int(((step*10)-1)%480)]
+        # Calculate distance 
+        dist = ideal_position - ef_position
+        return dist
+  
   def step(self, timestep: dm_env.TimeStep) -> np.ndarray:
     """
     Computes velocities in the x/y plane parameterized in time.
@@ -165,25 +168,35 @@ class Agent:
     if self.init:
       self.trajectory = self.calculate_trajectory(ef_position)
       self.init = False
-    eu_dist = self.calculate_eu_dist(time_t, ef_position)
+    # eu_dist = self.calculate_eu_dist(time_t, ef_position)
+    dist = self.calculate_dist(time_t, ef_position)
     ### INFERENCE ###
     if (time_t - self.time_state) >= self.step_time:
       self.action = np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
-      obs = self.format_obs(force, torque, vel_ef, eu_dist, ef_position)
+      # obs = self.format_obs(force, torque, vel_ef, eu_dist, ef_position, time_t%24)
+      obs = self.format_obs(force, torque, vel_ef, dist, time_t%12)
       obs_array = np.array(list(obs.values()), dtype=np.float32)
       act, _states = self.model.predict(obs_array, deterministic=True)
       self.action[0:6] = act
       print(f"Time [{time_t}]")
       print(self.action)
       self.time_state = time_t
+    mode = 'a'
+    if self.rewrite: # reset files at first iteration
+        mode = 'w'
+        self.rewrite = False
+    self.save_data(os.path.join(self.data_path, "panda_traj_model.csv"), [ef_position[0], ef_position[1]], mode)
+    self.save_data(os.path.join(self.data_path, "panda_forces_model.csv"), timestep.observation['panda_force'], mode)
+    self.save_data(os.path.join(self.data_path, "panda_torques_model.csv"), timestep.observation['panda_torque'], mode)
+    self.save_data(os.path.join(self.data_path, "panda_joint_torques_model.csv"), timestep.observation['panda_joint_torques'], mode)
+    self.save_data(os.path.join(self.data_path, "panda_vel_ef_model.csv"), timestep.observation['panda_tcp_vel_world'], mode)
     return self.action
 
 
 if __name__ == '__main__':
-  # We initialize the default configuration for logging
-  # and argument parsing. These steps are optional.
-  utils.init_logging()
-  parser = utils.default_arg_parser()
+  # Argument parsing.
+  parser = argparse.ArgumentParser(description="Trained model for inference")
+  parser.add_argument("-m", "--model", type=str, help="name of the .zip file resulting from training")
   args = parser.parse_args()
 
   # Load environment from an MJCF file.
@@ -255,13 +268,13 @@ if __name__ == '__main__':
     if hasattr(jnt, "name"): 
       print(f"joint[{i}] : {jnt.name}")
       joint_names.append(jnt.name)
-
+  model_path = os.path.join(script_dir, "..", "..", "checkpoints", args.model)
+  home_path = os.path.join(script_dir, "..", "..")
   with panda_env.build_task_environment() as env:
     # Print the full action, observation and reward specification
     utils.full_spec(env)
     # Initialize the agent
-    # agent = Agent(env.action_spec(), '/home/oscar/TFM/sac_panda_v3_500000_steps.zip')
-    agent = Agent(env.action_spec(), '/home/oscar/TFM/sac_panda_v5_400000_steps.zip')
+    agent = Agent(env.action_spec(), model_path, home_path)
     agent.pass_args(env, joint_names)
     # Run the environment and agent inside the GUI.
     app = utils.ApplicationWithPlot(width=1440, height=860)
