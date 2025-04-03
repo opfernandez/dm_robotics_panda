@@ -54,7 +54,7 @@ if __name__ == '__main__':
 
     # Read trained model followed trajectory
     posX, posY = [], []
-    file_model = files_path + "panda_test_model.csv"
+    file_model = files_path + "panda_traj_model.csv"
     with open(file_model, mode="r") as file:
         reader = csv.reader(file)
         next(reader)  # Saltar el encabezado
