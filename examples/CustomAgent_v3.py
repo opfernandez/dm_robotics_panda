@@ -49,7 +49,7 @@ class Agent:
         self.env_reset = True
         self.init = True
         self._waitingforrlcommands = True
-        self.step_time = 0.45 # segundos que va a pasar el agente realizando un mismo movimiento
+        self.step_time = 0.55 # segundos que va a pasar el agente realizando un mismo movimiento
         self.action = np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
         # Create an instance of the communication object and start communication
         self.agent_side = AgentSide(ipbaselinespart, portbaselinespart)
@@ -195,6 +195,7 @@ class Agent:
                     self.agent_side.stepSendLastActDur(lat)
                     self.action = np.array(list(sb_action.values()), dtype=np.float32)
                     self.env_reset = False
+                    self.time_state = time_t
                     print("--"*30)
                     print(f"Received STEP [{time_t:.2f}] action: {sb_action}") 
                     print(f"After [{lat:.2f}] time")
@@ -204,6 +205,7 @@ class Agent:
                     if self.env_reset:
                         obs = self.format_obs(force, torque, vel_ef, dist, time_t)
                         self.agent_side.resetSendObs(obs)
+                        self.time_state = time_t
                     else:
                         self.reset()
                 elif whattodo[0] == AgentSide.WhatToDo.FINISH:
@@ -212,7 +214,7 @@ class Agent:
                     sys.exit()
                 else:
                     raise(ValueError("Unknown indicator data"))
-                self.time_state = time_t
+                # self.time_state = time_t
         return self.action
 
     def reset(self):
@@ -239,12 +241,7 @@ class Agent:
 
 
 if __name__ == '__main__':
-    # We initialize the default configuration for logging
-    # and argument parsing. These steps are optional.
-    # utils.init_logging()
-    # parser = utils.default_arg_parser()
-    # args = parser.parse_args()
-
+    # Argument parsing.
     parser = argparse.ArgumentParser(description="Sockets port communication is required")
     parser.add_argument("-p", "--port", type=int, help="Sockets port communication")
     parser.add_argument("-i", "--ip", type=str, help="IP of host machine: X.X.X.X")
