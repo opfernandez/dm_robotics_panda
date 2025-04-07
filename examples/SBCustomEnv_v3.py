@@ -56,7 +56,7 @@ class CustomEnv(Env):
         act.update({"noused" : 0.0})
         return act
 
-    def calculate_reward(self, obs, step_cont):
+    def calculate_reward(self, obs, done):
         """
         Reward = +Reward(eu_dist) +Reward(continuity) -Reward(esfuerzo)
             Reward(eu_dist) = 200 - np.clip((gain*obs[-1]), 0, 200)
@@ -67,23 +67,28 @@ class CustomEnv(Env):
         eud = np.linalg.norm(obs[12:15])
         rw_effort = 0.0
         rw_dist = 0.0
-        gain = 2000.0
+        gain = 3000.0
         force_threshold = 15
         torque_threshold = 30
-        max_energy = 3*self.lineal_vel + 3*self.angular_vel
+        max_energy = 3.0 * self.lineal_vel + 3.0 * self.angular_vel
         energy = np.sum(np.abs(obs[6:12]))
-        rw_energy = 100*energy / max_energy
-        rw_energy = np.clip(rw_energy, 0, 100)
+        rw_energy = 50.0 * (energy / max_energy)
+        rw_energy = np.clip(rw_energy, 0, 50)
         # Check force and torque thresholds
         force_check = np.any(np.abs(obs[0:3]) > force_threshold)
         torque_check = np.any(np.abs(obs[3:6]) > torque_threshold)
         if force_check or torque_check:
-            rw_effort = 200.0
-        rw_dist = 200 - np.clip((gain*eud), 0, 200)
-        rw_continuity = (100/self.max_step) * step_cont
+            rw_effort = 300.0
+        rw_dist = 300.0 - np.clip((gain*eud), 0.0, 300.0)
+        #rw_continuity = (100/self.max_step) * step_cont
+        rw_continuity = 50.0
+        if done and (force_check or torque_check):
+            rw_continuity = 0.0
+
         total_rw = rw_dist+rw_continuity-rw_effort-rw_energy
+        # total_rw = rw_dist-rw_effort-rw_energy
         # SAC has better results with normalizer reward range between +-10 (rw/30)
-        total_rw /= 30.0
+        total_rw /= 35.0
         # total_rw = rw_dist-rw_effort
         print(f"rw_dist={rw_dist:.2f}, rw_continuity={rw_continuity:.2f}, rw_effort={-rw_effort:.2f}, rw_energy={-rw_energy:.2f}")
         print(f"Generated Reward: [{total_rw:.2f}]")
@@ -128,7 +133,7 @@ class CustomEnv(Env):
         # Check end episode conditions
         step_cont, done = self.end_episode(obs_array)
         # Calculate reward based on observations 
-        reward = self.calculate_reward(obs_array, step_cont)
+        reward = self.calculate_reward(obs_array, done)
         print("--"*30)
         if done:
             print("\nSending DONE\n")
@@ -152,7 +157,7 @@ def main():
     action_noise = NormalActionNoise(mean=np.zeros(n_actions), sigma=0.1 * np.ones(n_actions))
 
     model = SAC("MlpPolicy", env,
-                learning_rate=0.0003, 
+                learning_rate=0.001, #0.0003
                 learning_starts=1000,
                 batch_size = 256,
                 gamma=0.999,
@@ -168,7 +173,7 @@ def main():
     checkpoint_callback = CheckpointCallback(
         save_freq=50000,  # save model every 50k steps
         save_path=checkpoits_path,
-        name_prefix="sac_panda_v6"
+        name_prefix="sac_panda_v9"
     )
 
     callbacks = CallbackList([pb_callback, callback_max_ep, checkpoint_callback])
