@@ -31,7 +31,7 @@ class CustomEnv(gym.Env):
         low_ap_limits = np.array([-self.lineal_vel, -self.lineal_vel, -self.lineal_vel, -self.angular_vel, -self.angular_vel, -self.angular_vel], dtype=np.float32)
         up_ap_limits = np.array([self.lineal_vel, self.lineal_vel, self.lineal_vel, self.angular_vel, self.angular_vel, self.angular_vel], dtype=np.float32)
         self.action_space = Box(low=low_ap_limits, high=up_ap_limits, shape=(6,), dtype=np.float32)
-        self.max_step = 100
+        self.max_step = 400
         self.end_ep_cont = 0
         # If robot exceeds any of these threshold the episode ends
         self.max_force_threshold = 48
@@ -67,58 +67,62 @@ class CustomEnv(gym.Env):
             Reward(continuity) = (100/max_steps)*step_cont -> rewarding the agent for providing continuous and non-charging cinematics in causes that end the episode
             Reward(energy) = 100*energy / max_energy -> reward used to minimize using high ef cartesian velocities
         """
-        eud = obs[15]
-        rw_effort = 0.0
-        rw_dist = 0.0
-        gain = 3000.0
+        # Configuraciones
+        gain_pos = 10.0
+        gain_vel = 0.75
+        gain_force = 0.75
+        gain_torque = 0.75
         force_threshold = 15
-        torque_threshold = 30
+        torque_threshold = 35
 
-        # Punishment for lineal vel
+        # Position: positive reward with exponential shaping
+        # Value between 0 and 10, higher the nearest to the point
+        eud = obs[15]
+        rw_dist = 10.0 * np.exp(-gain_pos * eud) 
+
+        # Penalty for lineal vel
         max_lineal_vel = np.array([self.lineal_vel, self.lineal_vel, self.lineal_vel])
         norm_lineal_vel = np.linalg.norm(obs[6:9])
         norm_max_lineal_vel = np.linalg.norm(max_lineal_vel)
-        rw_energy_lineal_vel = 50.0* (norm_lineal_vel/norm_max_lineal_vel)
-        rw_energy_lineal_vel = np.clip(rw_energy_lineal_vel, 0, 50)
-        # Punishment for angular vel
+        rw_lineal_vel = gain_vel * (norm_lineal_vel/norm_max_lineal_vel)
+
+        # Penalty for angular vel
         max_angular_vel =np.array([self.angular_vel, self.angular_vel, self.angular_vel])
         norm_angular_vel = np.linalg.norm(obs[9:12])
         norm_max_angular_vel = np.linalg.norm(max_angular_vel)
-        rw_energy_angular_vel = 50.0* (norm_angular_vel/norm_max_angular_vel)
-        rw_energy_angular_vel = np.clip(rw_energy_angular_vel, 0, 50)
-        # Punishment for force
+        rw_angular_vel = gain_vel * (norm_angular_vel/norm_max_angular_vel)
+
+        # Penalty for force
         max_force =np.array([self.max_force_threshold, self.max_force_threshold, self.max_force_threshold])
         norm_force = np.linalg.norm(obs[0:3])
         norm_max_force = np.linalg.norm(max_force)
-        rw_energy_force = 50.0* (norm_force/norm_max_force)
-        rw_energy_force = np.clip(rw_energy_force, 0, 50)
-        # Punishment for torques
+        rw_force = gain_force * (norm_force/norm_max_force)
+
+        # Penalty for torques
         max_torque =np.array([self.max_torque_threshold, self.max_torque_threshold, self.max_torque_threshold])
         norm_torque = np.linalg.norm(obs[3:6])
         norm_max_torque = np.linalg.norm(max_torque)
-        rw_energy_torque = 50.0* (norm_torque/norm_max_torque)
-        rw_energy_torque = np.clip(rw_energy_torque, 0, 50)
+        rw_torque = gain_torque * (norm_torque/norm_max_torque)
 
-        # Check force and torque thresholds
+        # High penalty for force-torque threshold exceed
+        rw_safety = 0.0
         force_check = np.any(np.abs(obs[0:3]) > force_threshold)
         torque_check = np.any(np.abs(obs[3:6]) > torque_threshold)
         if force_check or torque_check:
-            rw_effort = 300.0
-        rw_dist = 300.0 - np.clip((gain*eud), 0.0, 300.0)
+            rw_safety = 10.0
 
-        total_rw = rw_dist-rw_effort-rw_energy_lineal_vel-rw_energy_angular_vel-rw_energy_force-rw_energy_torque
-        # SAC has better results with normalizer reward range between +-10
-        if total_rw >= 0:
-            total_rw /= 30.0
-        else:
-            total_rw /= 50.0
+        # Total reward sum
+        total_rw = rw_dist - rw_lineal_vel - rw_angular_vel - rw_force - rw_torque - rw_safety
+
+        # SAC works better with normalization
+        total_rw = np.clip(total_rw, -10.0, 10.0)
         
-        print(f"rw_dist={rw_dist:.2f}\n" 
-            f"rw_effort={-rw_effort:.2f}\n"
-            f"rw_energy_lineal_vel={-rw_energy_lineal_vel:.2f}\n"
-            f"rw_energy_angular_vel={-rw_energy_angular_vel:.2f}\n"
-            f"rw_energy_force={-rw_energy_force:.2f}\n"
-            f"rw_energy_torque={-rw_energy_torque:.2f}\n")
+        print(f"\nrw_dist={rw_dist:.2f}\n" 
+            f"rw_safety={-rw_safety:.2f}\n"
+            f"rw_lineal_vel={-rw_lineal_vel:.2f}\n"
+            f"rw_angular_vel={-rw_angular_vel:.2f}\n"
+            f"rw_force={-rw_force:.2f}\n"
+            f"rw_torque={-rw_torque:.2f}\n")
         print(f"Generated Reward: [{total_rw:.2f}]")
         return total_rw
 
@@ -184,13 +188,13 @@ def main():
     action_noise = NormalActionNoise(mean=np.zeros(n_actions), sigma=0.1 * np.ones(n_actions))
 
     model = SAC("MlpPolicy", env,
-                learning_rate=0.0003, #0.0003 0.001
-                learning_starts=1000,
+                learning_rate=0.0008, #0.0003 0.001
+                learning_starts=15000,
                 batch_size = 256,
-                gamma=0.999,
-                train_freq=1,
+                gamma=0.9999,
+                train_freq=(1, "step"),
                 gradient_steps=1,
-                action_noise=action_noise,  
+                #action_noise=action_noise,  
                 verbose=1, 
                 tensorboard_log=tensorboard_log_path)
 
@@ -200,7 +204,7 @@ def main():
     checkpoint_callback = CheckpointCallback(
         save_freq=50000,  # save model every 50k steps
         save_path=checkpoits_path,
-        name_prefix="sac_panda_v9"
+        name_prefix="sac_panda_home_v20"
     )
 
     callbacks = CallbackList([pb_callback, callback_max_ep, checkpoint_callback])

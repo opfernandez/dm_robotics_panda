@@ -56,6 +56,7 @@ class Agent:
         self.action = np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
         # Create an instance of the communication object and start communication
         self.agent_side = AgentSide(BaseCommPoint.get_ip(), portbaselinespart)
+        self.points_traj = 5000
 
     def pass_args(self, env: Environment, joint_names):
         self.env = env
@@ -111,7 +112,7 @@ class Agent:
         posX = ef_position[0]; posY = ef_position[1]; posZ = ef_position[2]
         constant_vel = 0.05
         incT = 0.1
-        n_points = 2000
+        n_points = self.points_traj
         #######################################################
         if uc == "square":
             self.trajectory = np.zeros((n_points, 3), dtype=np.float32)
@@ -244,7 +245,7 @@ class Agent:
     def calculate_dist(self, step, ef_position):
         # Timestep advance 0.1 at a time, to get index is mandatory multiply the timestep by 10
         # % 480 is just a safety trick, it should never be effective, because step should not exceed 48
-        ideal_position = self.trajectory[int(((step*10)-1)%2000)]
+        ideal_position = self.trajectory[int(((step*10)-1)%self.points_traj)]
         # Calculate distance 
         dist = ideal_position - ef_position
         return dist
@@ -252,7 +253,7 @@ class Agent:
     def calculate_eu_dist(self, step, ef_position):
         # Timestep advance 0.1 at a time, to get index is mandatory multiply the timestep by 10
         # % 480 is just a safety trick, it should never be effective, because step should not exceed 48
-        ideal_position = self.trajectory[int(((step*10)-1)%2000)]
+        ideal_position = self.trajectory[int(((step*10)-1)%self.points_traj)]
         # Calculate euclidean distance 
         eud = np.linalg.norm(ideal_position - ef_position)
         return eud
