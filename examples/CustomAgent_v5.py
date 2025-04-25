@@ -51,7 +51,8 @@ class Agent:
         self.init = True
         self._waitingforrlcommands = True
         self.step_time = 0.35 # segundos que va a pasar el agente realizando un mismo movimiento
-        self.traj_dict = ["square", "triangle", "circle"]
+        # self.traj_dict = ["square", "triangle", "circle"]
+        self.traj_dict = ["square", "triangle"]
         self.episode_cont = 0
         self.action = np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
         # Create an instance of the communication object and start communication
@@ -119,13 +120,13 @@ class Agent:
             self.trajectory[0] = [posX, posY, posZ]
             for step in range(1, n_points): # Ideal square trajectory
                 if state == 0: # Move through Z axis
-                    posZ += incT * constant_vel
+                    posZ += incT * constant_vel 
                     cont += 1
                     if cont >= cycles:
                         state = 1
                         cont = 0
                 elif state == 1: # Move through X axis
-                    posX += incT * (-1*constant_vel)
+                    posX += incT * constant_vel
                     cont += 1
                     if cont >= cycles:
                         state = 2
@@ -137,7 +138,7 @@ class Agent:
                         state = 3
                         cont = 0
                 elif state == 3: # Move through X axis
-                    posX += incT * constant_vel
+                    posX += incT * (-1*constant_vel)
                     cont += 1
                     if cont >= cycles:
                         state = 4
@@ -161,46 +162,46 @@ class Agent:
                         state = 1
                         cont = 0
                 elif state == 1: # Move through X axis
-                    posX += incT * (-1*constant_vel)
+                    posX += incT * constant_vel
                     cont += 1
                     if cont >= cycles:
                         state = 2
                         cont = 0
                 elif state == 2: # Move through Y axis
                     posY += incT * (-1*constant_vel)
-                    posX += incT * (0.5*constant_vel)
+                    posX += incT * (-0.5*constant_vel)
                     cont += 1
                     if cont >= cycles:
                         state = 3
                         cont = 0
                 elif state == 3: # Move through X axis
                     posY += incT * constant_vel
-                    posX += incT * (0.5*constant_vel)
+                    posX += incT * (-0.5*constant_vel)
                     cont += 1
                     if cont >= cycles:
                         state = 1
                         cont = 0
                 self.trajectory[step] = [posX, posY, posZ]
         #######################################################
-        elif uc == "circle":
-            r = 0.075
-            self.trajectory = []
-            # Uniformely distributed angles
-            thetas = np.linspace(0, 2*np.pi, 120)
+        # elif uc == "circle":
+        #     r = 0.075
+        #     self.trajectory = []
+        #     # Uniformely distributed angles
+        #     thetas = np.linspace(0, 2*np.pi, 120)
 
-            laps = n_points // 120
-            if  (n_points % 120) != 0:
-                laps += 1
-            for i in range(laps):
-                # Circular coordinates on XY plane
-                x = posX + r * np.cos(thetas)
-                y = posY - r * np.sin(thetas) - r
-                z = np.full_like(x, posZ)  # Z constant
+        #     laps = n_points // 120
+        #     if  (n_points % 120) != 0:
+        #         laps += 1
+        #     for i in range(laps):
+        #         # Circular coordinates on XY plane
+        #         x = posX + r * np.cos(thetas)
+        #         y = posY - r * np.sin(thetas) - r
+        #         z = np.full_like(x, posZ)  # Z constant
 
-                lap_traj = np.stack((x, y, z), axis=1)
-                self.trajectory.append(lap_traj)
+        #         lap_traj = np.stack((x, y, z), axis=1)
+        #         self.trajectory.append(lap_traj)
 
-            self.trajectory = np.vstack(self.trajectory)
+        #     self.trajectory = np.vstack(self.trajectory)
         else:
             print("\n\tERROR DURING TRAJECTORY CALCULATION!!!\n")
 

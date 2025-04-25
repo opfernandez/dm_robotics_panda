@@ -50,7 +50,7 @@ class Agent:
         self.env_reset = True
         self.init = True
         self._waitingforrlcommands = True
-        self.step_time = 0.55 # segundos que va a pasar el agente realizando un mismo movimiento
+        self.step_time = 0.35 # segundos que va a pasar el agente realizando un mismo movimiento
         self.action = np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
         # Create an instance of the communication object and start communication
         self.agent_side = AgentSide(BaseCommPoint.get_ip(), portbaselinespart)
@@ -66,9 +66,9 @@ class Agent:
         posX = ef_position[0]; posY = ef_position[1]; posZ = ef_position[2]
         constant_vel = 0.05
         incT = 0.1
-        trajectory = np.zeros((480, 3), dtype=np.float32)
-        trajectory[0] = [posX, posY, posZ]
-        for step in range(1, 480): # Ideal square trajectory
+        self.trajectory = np.zeros((2000, 3), dtype=np.float32)
+        self.trajectory[0] = [posX, posY, posZ]
+        for step in range(1, 2000): # Ideal square trajectory
             if state == 0: # Move through Z axis
                 posZ += incT * constant_vel
                 cont += 1
@@ -99,8 +99,8 @@ class Agent:
             if cont >= cycles:
                 state = 1
                 cont = 0
-            trajectory[step] = [posX, posY, posZ]
-        return trajectory
+            self.trajectory[step] = [posX, posY, posZ]
+        #return trajectory
 
     def format_obs(self, force, torque, vel_ef, dist, eu_dist):
         """
@@ -128,7 +128,12 @@ class Agent:
                     'Y_dif': dist[1],
                     'Z_dif': dist[2],
                     'euclidean_dist': eu_dist}
-        return obs
+        # Check Inf or NaN posible values
+        invalid_value = False
+        for key, value in obs.items():
+            if np.isnan(value) or np.isinf(value):
+                invalid_value = True
+        return obs, invalid_value
 
     def save_data(self, file_name, data, mode):
         with open(file_name, mode=mode, newline="") as file:
@@ -138,7 +143,7 @@ class Agent:
     def calculate_dist(self, step, ef_position):
         # Timestep advance 0.1 at a time, to get index is mandatory multiply the timestep by 10
         # % 480 is just a safety trick, it should never be effective, because step should not exceed 48
-        ideal_position = self.trajectory[int(((step*10)-1)%480)]
+        ideal_position = self.trajectory[int(((step*10)-1)%2000)]
         # Calculate distance 
         dist = ideal_position - ef_position
         return dist
@@ -146,7 +151,7 @@ class Agent:
     def calculate_eu_dist(self, step, ef_position):
         # Timestep advance 0.1 at a time, to get index is mandatory multiply the timestep by 10
         # % 480 is just a safety trick, it should never be effective, because step should not exceed 48
-        ideal_position = self.trajectory[int(((step*10)-1)%480)]
+        ideal_position = self.trajectory[int(((step*10)-1)%2000)]
         # Calculate euclidean distance 
         eud = np.linalg.norm(ideal_position - ef_position)
         return eud
@@ -172,7 +177,7 @@ class Agent:
                         timestep.observation['panda_tcp_pose'][2]] # Z
         # Calculate trajectory on first step:
         if self.init:
-            self.trajectory = self.calculate_trajectory(ef_position)
+            self.calculate_trajectory(ef_position)
             self.init = False
         eu_dist = self.calculate_eu_dist(time_t, ef_position)
         dist = self.calculate_dist(time_t, ef_position)
@@ -181,9 +186,10 @@ class Agent:
         if not self._waitingforrlcommands:
             if self.env_reset or ((time_t - self.time_state) >= self.step_time):
                 # Create observation dict
-                obs = self.format_obs(force, torque, vel_ef, dist, eu_dist)
-                self.agent_side.stepSendObs(obs) # RL was waiting for this; no reward is actually needed here
-                self._waitingforrlcommands = True
+                obs, invalid_value = self.format_obs(force, torque, vel_ef, dist, eu_dist)
+                if not invalid_value:
+                    self.agent_side.stepSendObs(obs) # RL was waiting for this; no reward is actually needed here
+                    self._waitingforrlcommands = True
         else:
             # Receive the indicator of what to do
             whattodo = self.agent_side.readWhatToDo()
@@ -204,7 +210,7 @@ class Agent:
                 elif whattodo[0] == AgentSide.WhatToDo.RESET_SEND_OBS:
                     print("\nRESETTING ENV TO START NEW EPISODE...\n")
                     if self.env_reset:
-                        obs = self.format_obs(force, torque, vel_ef, dist, eu_dist)
+                        obs, invalid_value = self.format_obs(force, torque, vel_ef, dist, eu_dist)
                         self.agent_side.resetSendObs(obs)
                         self.time_state = time_t
                     else:
@@ -229,12 +235,15 @@ class Agent:
         ef_position = [timestep.observation['panda_tcp_pose'][0], # X
                         timestep.observation['panda_tcp_pose'][1], # Y
                         timestep.observation['panda_tcp_pose'][2]] # Z
+        # Recalculate trajectory
+        self.calculate_trajectory(ef_position)
+        # calculate euclidean dist and exis-dist
         eu_dist = self.calculate_eu_dist(time_t, ef_position)
         dist = self.calculate_dist(time_t, ef_position)
         # reset time-state (for state machine)
         self.time_state = time_t
         # Create observation dict
-        obs = self.format_obs(force, torque, vel_ef, dist, eu_dist)
+        obs, invalid_value = self.format_obs(force, torque, vel_ef, dist, eu_dist)
         # Just send observation dict
         self.agent_side.resetSendObs(obs)
         #time.sleep(0.1)
