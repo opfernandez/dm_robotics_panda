@@ -43,69 +43,209 @@ class Agent:
     self.env_reset = True
     self.init = True
     self._waitingforrlcommands = True
-    self.step_time = 0.15 # segundos que va a pasar el agente realizando un mismo movimiento
+    self.step_time = 0.35 # segundos que va a pasar el agente realizando un mismo movimiento
     self.action = np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
     # Load trained model
     self.model = SAC.load(model_path)
     self.rewrite = True
     self.home_path = home_path
     self.data_path = os.path.join(self.home_path, "data")
+    self.points_traj = 5000
 
   def pass_args(self, env: Environment, joint_names):
     self.env = env
     self.joint_names = joint_names
   
-  def calculate_trajectory(self, ef_position):
+  def calculate_trajectory(self, ef_position, uc="square"):
     state = 1
     cont = 1
     cycles = 30
     posX = ef_position[0]; posY = ef_position[1]; posZ = ef_position[2]
     constant_vel = 0.05
     incT = 0.1
-    trajectory = np.zeros((480, 3), dtype=np.float32)
+    n_points = self.points_traj
+    trajectory = np.zeros((n_points, 3), dtype=np.float32)
     trajectory[0] = [posX, posY, posZ]
-    for step in range(1, 480): # Ideal square trajectory
-      if state == 0: # Move through Z axis
-        posZ += incT * constant_vel
-        cont += 1
-        if cont >= cycles:
-          state = 1
-          cont = 0
-      elif state == 1: # Move through X axis
-        posX += incT * constant_vel
-        cont += 1
-        if cont >= cycles:
-          state = 2
-          cont = 0
-      elif state == 2: # Move through Y axis
-        posY += incT * (-1*constant_vel)
-        cont += 1
-        if cont >= cycles:
-          state = 3
-          cont = 0
-      elif state == 3: # Move through X axis
-        posX += incT * (-1*constant_vel)
-        cont += 1
-        if cont >= cycles:
-          state = 4
-          cont = 0
-      elif state == 4: # Move through Y axis
-        posY += incT * constant_vel
-        cont += 1
-        if cont >= cycles:
-          state = 1
-          cont = 0
-      trajectory[step] = [posX, posY, posZ]
+    #######################################################
+    if uc == "ah-square":
+      for step in range(1, n_points):  # Ideal square trajectory
+        if state == 0:  # Move through Z axis
+          posZ += incT * constant_vel
+          cont += 1
+          if cont >= cycles:
+            state = 1
+            cont = 0
+        elif state == 1:  # Move through X axis
+          posX += -incT * constant_vel
+          cont += 1
+          if cont >= cycles:
+            state = 2
+            cont = 0
+        elif state == 2:  # Move through Y axis
+          posY += incT * (-1 * constant_vel)
+          cont += 1
+          if cont >= cycles:
+            state = 3
+            cont = 0
+        elif state == 3:  # Move through X axis
+          posX += incT * (constant_vel)
+          cont += 1
+          if cont >= cycles:
+            state = 4
+            cont = 0
+        elif state == 4:  # Move through Y axis
+          posY += incT * constant_vel
+          cont += 1
+          if cont >= cycles:
+            state = 1
+            cont = 0
+        trajectory[step] = [posX, posY, posZ]
+    #######################################################
+    elif uc == "h-square":
+      for step in range(1, n_points):  # Ideal square trajectory
+        if state == 0:  # Move through Z axis
+          posZ += -incT * constant_vel
+          cont += 1
+          if cont >= cycles:
+            state = 1
+            cont = 0
+        elif state == 1:  # Move through X axis
+          posX += incT * constant_vel
+          cont += 1
+          if cont >= cycles:
+            state = 2
+            cont = 0
+        elif state == 2:  # Move through Y axis
+          posY += incT * (-1 * constant_vel)
+          cont += 1
+          if cont >= cycles:
+            state = 3
+            cont = 0
+        elif state == 3:  # Move through X axis
+          posX += -incT * constant_vel
+          cont += 1
+          if cont >= cycles:
+            state = 4
+            cont = 0
+        elif state == 4:  # Move through Y axis
+          posY += incT * constant_vel
+          cont += 1
+          if cont >= cycles:
+            state = 1
+            cont = 0
+        trajectory[step] = [posX, posY, posZ]
+    #######################################################
+    # elif uc == "ah-triangle":
+    #   for step in range(1, n_points):  # Ideal triangle trajectory
+    #     if state == 0:  # Move through Z axis
+    #       posZ += incT * constant_vel
+    #       cont += 1
+    #       if cont >= cycles:
+    #         state = 1
+    #         cont = 0
+    #     elif state == 1:  # Move through X axis
+    #       posX += -incT * constant_vel
+    #       cont += 1
+    #       if cont >= cycles:
+    #         state = 2
+    #         cont = 0
+    #     elif state == 2:  # Diagonal Y- and X+
+    #       posY += incT * (-1 * constant_vel)
+    #       posX += incT * (0.5 * constant_vel)
+    #       cont += 1
+    #       if cont >= cycles:
+    #         state = 3
+    #         cont = 0
+    #     elif state == 3:  # Diagonal Y+ and X+
+    #       posY += incT * constant_vel
+    #       posX += incT * (0.5 * constant_vel)
+    #       cont += 1
+    #       if cont >= cycles:
+    #         state = 1
+    #         cont = 0
+    #     trajectory[step] = [posX, posY, posZ]
+    #######################################################
+    elif uc == "h-triangle":
+      for step in range(1, n_points):  # Ideal triangle trajectory
+        if state == 0:  # Move through Z axis
+          posZ += incT * constant_vel
+          cont += 1
+          if cont >= cycles:
+            state = 1
+            cont = 0
+        elif state == 1:  # Move through X axis
+          posX += incT * constant_vel
+          cont += 1
+          if cont >= cycles:
+            state = 2
+            cont = 0
+        elif state == 2:  # Diagonal Y- and X-
+          posY += incT * (-1 * constant_vel)
+          posX += -incT * (0.5 * constant_vel)
+          cont += 1
+          if cont >= cycles:
+            state = 3
+            cont = 0
+        elif state == 3:  # Diagonal Y+ and X-
+          posY += incT * constant_vel
+          posX += -incT * (0.5 * constant_vel)
+          cont += 1
+          if cont >= cycles:
+            state = 1
+            cont = 0
+        trajectory[step] = [posX, posY, posZ]
+    #######################################################
+    elif uc == "h-circle":
+      r = 0.05
+      trajectory = []
+      # Uniformely distributed angles
+      thetas = np.linspace(-np.pi/2, 1.5*np.pi, 120) # h
+
+      laps = n_points // 120
+      if  (n_points % 120) != 0:
+        laps += 1
+      for i in range(laps):
+        # Circular coordinates on XY plane
+        x = posX + r * np.cos(thetas)
+        y = posY - r * np.sin(thetas) - r
+        z = np.full_like(x, posZ)  # Z constant
+
+        lap_traj = np.stack((x, y, z), axis=1)
+        trajectory.append(lap_traj)
+
+      trajectory = np.vstack(trajectory)
+    #######################################################
+    elif uc == "ah-circle":
+      r = 0.05
+      trajectory = []
+      # Uniformely distributed angles
+      thetas = np.linspace(-np.pi/2, (-5/2)*np.pi, 120) # ah
+
+      laps = n_points // 120
+      if  (n_points % 120) != 0:
+        laps += 1
+      for i in range(laps):
+        # Circular coordinates on XY plane
+        x = posX + r * np.cos(thetas)
+        y = posY - r * np.sin(thetas) - r
+        z = np.full_like(x, posZ)  # Z constant
+
+        lap_traj = np.stack((x, y, z), axis=1)
+        trajectory.append(lap_traj)
+
+      trajectory = np.vstack(trajectory)
+    else:
+      print("\n\tERROR DURING TRAJECTORY CALCULATION!!!\n")
     return trajectory
   
-  def format_obs(self, force, torque, vel_ef, dist, time_step):
+  def format_obs(self, force, torque, vel_ef, dist, eu_dist):
         """
         Observation space is conformed by:
         - force: End effector measured force (axis X,Y,Z).
         - torque: End effector measured torque (axis X,Y,Z).
         - ef_vel: End effector measured Cartesian velocity (axis X,Y,Z, roll, pitch, yaw).
         - dist: Distance between end effector position and ideal trajectory position.
-        - time_step: Time of current step.
+        - eu_dist: euclidean distance between end effector position and ideal trajectory position.
         """
         # Create observation dict
         obs = {'F_wristX': force[0],
@@ -123,9 +263,8 @@ class Agent:
                     'X_dif': dist[0],
                     'Y_dif': dist[1],
                     'Z_dif': dist[2],
-                    'time_step': time_step}
+                    'euclidean_dist': eu_dist}
         return obs
-
   def save_data(self, file_name, data, mode):
     with open(file_name, mode=mode, newline="") as file:
         writer = csv.writer(file)
@@ -133,16 +272,17 @@ class Agent:
 
   def calculate_eu_dist(self, step, ef_position):
     # Timestep advance 0.1 at a time, to get index is mandatory multiply the timestep by 10
-    ideal_position = self.trajectory[int(((step*10)-1)%480)]
+    ideal_position = self.trajectory[int(((step*10)-1)%self.points_traj)]
     # Calculate euclidean distance 
     eud = np.linalg.norm(ideal_position - ef_position)
     return eud
 
   def calculate_dist(self, step, ef_position):
         # Timestep advance 0.1 at a time, to get index is mandatory multiply the timestep by 10
-        ideal_position = self.trajectory[int(((step*10)-1)%480)]
+        ideal_position = self.trajectory[int(((step*10)-1)%self.points_traj)]
         # Calculate distance 
         dist = ideal_position - ef_position
+        print(f"Step: {step}, Index: {int(step * 10) % self.points_traj}, Ideal: {ideal_position}, Ef: {ef_position}, Dist: {dist}")
         return dist
   
   def step(self, timestep: dm_env.TimeStep) -> np.ndarray:
@@ -166,15 +306,16 @@ class Agent:
                   timestep.observation['panda_tcp_pose'][2]] # Z
     # Calculate trajectory on first step:
     if self.init:
-      self.trajectory = self.calculate_trajectory(ef_position)
+      self.trajectory = self.calculate_trajectory(ef_position, "ah-circle") # square // triangle // circle
       self.init = False
-    # eu_dist = self.calculate_eu_dist(time_t, ef_position)
+
+    eu_dist = self.calculate_eu_dist(time_t, ef_position)
     dist = self.calculate_dist(time_t, ef_position)
     ### INFERENCE ###
     if (time_t - self.time_state) >= self.step_time:
       self.action = np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
       # obs = self.format_obs(force, torque, vel_ef, eu_dist, ef_position, time_t%24)
-      obs = self.format_obs(force, torque, vel_ef, dist, time_t%12)
+      obs = self.format_obs(force, torque, vel_ef, dist, eu_dist)
       obs_array = np.array(list(obs.values()), dtype=np.float32)
       act, _states = self.model.predict(obs_array, deterministic=True)
       self.action[0:6] = act

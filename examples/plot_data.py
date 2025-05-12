@@ -208,10 +208,10 @@ def plot_eudist(timestep=0.1, filename="panda_euclidean.csv"):
     plt.show()
 
 if __name__ == '__main__':
-    plot_trajectory()
-    plot_eudist()
-    plot_torques_from_csv()
-    plot_forces_from_csv()
-    plot_joint_torques_from_csv()
-    plot_vel_ef_from_csv()
-    plot_vel_ef_from_csv(filename="panda_expected_vel.csv", timestep=0.1, title="Velocidades Ideales del Efector Final")
+    # plot_trajectory()
+    # plot_eudist()
+    plot_torques_from_csv(filename="/home/oscar/panda_myoarm/data/panda_torques_model.csv")
+    plot_forces_from_csv(filename="/home/oscar/panda_myoarm/data/panda_forces_model.csv")
+    # plot_joint_torques_from_csv()
+    plot_vel_ef_from_csv(filename="/home/oscar/panda_myoarm/data/panda_vel_ef_model.csv")
+    # plot_vel_ef_from_csv(filename="panda_expected_vel.csv", timestep=0.1, title="Velocidades Ideales del Efector Final")
