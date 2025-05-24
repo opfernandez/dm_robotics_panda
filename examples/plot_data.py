@@ -223,7 +223,7 @@ def plot_force_over_trajectory():
     
     # normalice forces between -1 and 1
     max_force = 55 # Assuming the maximum force is 55N
-    scale = 0.08  # Scale factor for the force vectors plotting
+    scale = 1.0  # Scale factor for the force vectors plotting
     fx_vals = np.array(fx_vals)
     fy_vals = np.array(fy_vals)
     fz_vals = np.array(fz_vals)
@@ -231,7 +231,7 @@ def plot_force_over_trajectory():
     fy_vals = np.clip(fy_vals/max_force, -1, 1)
     fz_vals = np.clip(fz_vals/max_force, -1, 1)
     # Sample forces spaced by 5
-    sample_rate = 5
+    sample_rate = 3
     sampled_fx_vals = fx_vals[::sample_rate]
     sampled_fy_vals = fy_vals[::sample_rate]
     sampled_fz_vals = fz_vals[::sample_rate]
@@ -241,6 +241,7 @@ def plot_force_over_trajectory():
     # Plot 3D trajectory and forces
     fig = plt.figure(figsize=(10, 8))
     ax = fig.add_subplot(111, projection='3d')
+    ax.set_zlim(0, 1.15)
     ax.plot(posX, posY, posZ, label='Model Trajectory', color='r')
     ax.plot(x_ideal, y_ideal, z_ideal, label='Ideal Trajectory', color='b')
     ax.quiver(sampled_posX, sampled_posY, sampled_posZ, sampled_fx_vals, sampled_fy_vals, sampled_fz_vals,\

@@ -36,7 +36,7 @@ class Agent:
     current observations and rewards.
     """
 
-    def __init__(self, spec: specs.BoundedArray, model_path, home_path) -> None:
+    def __init__(self, spec: specs.BoundedArray, model_path, home_path, selected_trajectory) -> None:
         # Initialize variables
         self._spec = spec
         self.time_state = 0.1
@@ -52,6 +52,7 @@ class Agent:
         self.home_path = home_path
         self.data_path = os.path.join(self.home_path, "data")
         self.points_traj = 5000
+        self.selected_trajectory = selected_trajectory
         # Magnitude thresholds for normalization
         self.max_vel = 0.25
         self.max_force_threshold = 20
@@ -392,7 +393,7 @@ class Agent:
         torque_world = np.array([torque_base[1], torque_base[0], torque_base[2]])
         # Calculate trajectory on first step:
         if self.init:
-            self.calculate_trajectory(ef_position, "h-triangle") # square // triangle // circle // pentagon
+            self.calculate_trajectory(ef_position, self.selected_trajectory) # square // triangle // circle // pentagon
             self.init = False
             self.save_data(os.path.join(self.data_path, "panda_ideal_traj_model.csv"), self.trajectory, 'w')
         eu_dist = self.calculate_eu_dist(time_t, ef_position)
@@ -500,7 +501,7 @@ if __name__ == '__main__':
         # Print the full action, observation and reward specification
         utils.full_spec(env)
         # Initialize the agent
-        agent = Agent(env.action_spec(), model_path, home_path)
+        agent = Agent(env.action_spec(), model_path, home_path, args.trajectory)
         agent.pass_args(env, joint_names)
         # Run the environment and agent inside the GUI.
         app = utils.ApplicationWithPlot(width=800, height=800)
