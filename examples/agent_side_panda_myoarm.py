@@ -1,10 +1,7 @@
-"""
-Imports a custom enviroment from a XML file.
-Produces a Cartesian motion using the Cartesian actuation mode.
-"""
 import os
 import sys
 import argparse
+import random
 import csv
 import dm_env
 import numpy as np
@@ -40,87 +37,101 @@ class MyoArm(Entity):
 
 class Agent:
     """Agents are used to control a robot's actions given
-    current observations and rewards.
+    current observations and rewards. This agent communicates with
+    a stable-baselines agent through sockets.
+    This agent does not implement any RL logic, it just sends the
+    actions received from the stable-baselines agent to the environment.
+    It also receives observations from the environment and sends them
+    to the stable-baselines agent.
     """
 
     def __init__(self, spec: specs.BoundedArray, portbaselinespart:int) -> None:
         self._spec = spec
-        self.state = 0
+        # Initialize variables
         self.time_state = 0.1
         self.env_reset = True
         self.init = True
+        # Flag to indicate if the agent is waiting for RL commands
         self._waitingforrlcommands = True
-        self.step_time = 0.35 # segundos que va a pasar el agente realizando un mismo movimiento
-        # self.traj_dict = ["square", "triangle", "circle"]
-        self.traj_dict = ["square", "triangle"]
+        # Time in seconds that the agent will wait before receiving the next action
+        self.step_time = 0.35
+        # Type of trajectory to follow
+        self.traj_dict = ["ah-square", "ah-circle", "h-square", "h-triangle", "h-circle"]
         self.episode_cont = 0
         self.action = np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
         # Create an instance of the communication object and start communication
         self.agent_side = AgentSide(BaseCommPoint.get_ip(), portbaselinespart)
         self.points_traj = 5000
+        # Magnitude thresholds for normalization
+        self.max_vel = 0.25
+        self.max_force_threshold = 20
+        self.max_torque_threshold = 55
+        self.max_dist = 0.15
 
     def pass_args(self, env: Environment, joint_names):
         self.env = env
         self.joint_names = joint_names
 
-    # def calculate_trajectory(self, ef_position):
-    #     state = 1
-    #     cont = 1
-    #     cycles = 30
-    #     posX = ef_position[0]; posY = ef_position[1]; posZ = ef_position[2]
-    #     constant_vel = 0.05
-    #     incT = 0.1
-    #     self.trajectory = np.zeros((2000, 3), dtype=np.float32)
-    #     self.trajectory[0] = [posX, posY, posZ]
-    #     for step in range(1, 2000): # Ideal square trajectory
-    #         if state == 0: # Move through Z axis
-    #             posZ += incT * constant_vel
-    #             cont += 1
-    #         if cont >= cycles:
-    #             state = 1
-    #             cont = 0
-    #         elif state == 1: # Move through X axis
-    #             posX += incT * constant_vel
-    #             cont += 1
-    #         if cont >= cycles:
-    #             state = 2
-    #             cont = 0
-    #         elif state == 2: # Move through Y axis
-    #             posY += incT * (-1*constant_vel)
-    #             cont += 1
-    #         if cont >= cycles:
-    #             state = 3
-    #             cont = 0
-    #         elif state == 3: # Move through X axis
-    #             posX += incT * (-1*constant_vel)
-    #             cont += 1
-    #         if cont >= cycles:
-    #             state = 4
-    #             cont = 0
-    #         elif state == 4: # Move through Y axis
-    #             posY += incT * constant_vel
-    #             cont += 1
-    #         if cont >= cycles:
-    #             state = 1
-    #             cont = 0
-    #         self.trajectory[step] = [posX, posY, posZ]
-    #     #return trajectory
-
-    def calculate_trajectory(self, ef_position, uc="square"):
+    def calculate_trajectory(self, ef_position, uc="h-square"):
+        """
+        Calculate the trajectory to follow based on the end effector position and the trajectory type.
+        The trajectory is calculated in a 3D space, with the Z axis being the vertical axis.
+        The trajectory is calculated in a way that the end effector will follow the trajectory
+        with a constant velocity.
+        Args:
+            ef_position: The end effector position in the form of a list [x, y, z].
+            uc: The trajectory type to follow. It can be "ah-square", "h-square", "ah-triangle", "h-triangle", "h-circle".
+        """
         state = 1
         cont = 1
         cycles = 30
-        posX = ef_position[0]; posY = ef_position[1]; posZ = ef_position[2]
-        constant_vel = 0.05
+        posX = ef_position[0]; posY = ef_position[1] 
+        posZ = ef_position[2] + random.uniform(-0.1, 0.1)
+        constant_vel = 0.05 + random.uniform(-0.01, 0.01)
         incT = 0.1
         n_points = self.points_traj
+        self.trajectory = np.zeros((n_points, 3), dtype=np.float32)
+        self.trajectory[0] = [posX, posY, posZ]
+        print(f"Computing trajectory {uc} with constant velocity: {constant_vel:.3f} at [{posX:.2f}, {posY:.2f}, {posZ:.2f}]")
         #######################################################
-        if uc == "square":
-            self.trajectory = np.zeros((n_points, 3), dtype=np.float32)
-            self.trajectory[0] = [posX, posY, posZ]
+        if uc == "ah-square":
             for step in range(1, n_points): # Ideal square trajectory
                 if state == 0: # Move through Z axis
-                    posZ += incT * constant_vel 
+                    posZ += incT * constant_vel
+                    cont += 1
+                    if cont >= cycles:
+                        state = 1
+                        cont = 0
+                elif state == 1: # Move through X axis
+                    posX += -incT * constant_vel
+                    cont += 1
+                    if cont >= cycles:
+                        state = 2
+                        cont = 0
+                elif state == 2: # Move through Y axis
+                    posY += incT * (-1*constant_vel)
+                    cont += 1
+                    if cont >= cycles:
+                        state = 3
+                        cont = 0
+                elif state == 3: # Move through X axis
+                    posX += incT * (constant_vel)
+                    cont += 1
+                    if cont >= cycles:
+                        state = 4
+                        cont = 0
+                elif state == 4: # Move through Y axis
+                    posY += incT * constant_vel
+                    cont += 1
+                    if cont >= cycles:
+                        state = 1
+                        cont = 0
+                self.trajectory[step] = [posX, posY, posZ]
+        #######################################################
+        elif uc == "h-square":
+            for step in range(1, n_points): # Ideal square trajectory
+                if state == 0: # Move through Z axis
+                    posZ += -incT * constant_vel
                     cont += 1
                     if cont >= cycles:
                         state = 1
@@ -138,7 +149,7 @@ class Agent:
                         state = 3
                         cont = 0
                 elif state == 3: # Move through X axis
-                    posX += incT * (-1*constant_vel)
+                    posX += -incT * constant_vel
                     cont += 1
                     if cont >= cycles:
                         state = 4
@@ -151,9 +162,37 @@ class Agent:
                         cont = 0
                 self.trajectory[step] = [posX, posY, posZ]
         #######################################################
-        elif uc == "triangle":
-            self.trajectory = np.zeros((n_points, 3), dtype=np.float32)
-            self.trajectory[0] = [posX, posY, posZ]
+        elif uc == "ah-triangle":
+            for step in range(1, n_points): # Ideal square trajectory
+                if state == 0: # Move through Z axis
+                    posZ += incT * constant_vel
+                    cont += 1
+                    if cont >= cycles:
+                        state = 1
+                        cont = 0
+                elif state == 1: # Move through X axis
+                    posX += -incT * constant_vel
+                    cont += 1
+                    if cont >= cycles:
+                        state = 2
+                        cont = 0
+                elif state == 2: # Move through Y axis
+                    posY += incT * (-1*constant_vel)
+                    posX += incT * (0.5*constant_vel)
+                    cont += 1
+                    if cont >= cycles:
+                        state = 3
+                        cont = 0
+                elif state == 3: # Move through X axis
+                    posY += incT * constant_vel
+                    posX += incT * (0.5*constant_vel)
+                    cont += 1
+                    if cont >= cycles:
+                        state = 1
+                        cont = 0
+                self.trajectory[step] = [posX, posY, posZ]
+        #######################################################
+        elif uc == "h-triangle":
             for step in range(1, n_points): # Ideal square trajectory
                 if state == 0: # Move through Z axis
                     posZ += incT * constant_vel
@@ -169,43 +208,63 @@ class Agent:
                         cont = 0
                 elif state == 2: # Move through Y axis
                     posY += incT * (-1*constant_vel)
-                    posX += incT * (-0.5*constant_vel)
+                    posX += -incT * (0.5*constant_vel)
                     cont += 1
                     if cont >= cycles:
                         state = 3
                         cont = 0
                 elif state == 3: # Move through X axis
                     posY += incT * constant_vel
-                    posX += incT * (-0.5*constant_vel)
+                    posX += -incT * (0.5*constant_vel)
                     cont += 1
                     if cont >= cycles:
                         state = 1
                         cont = 0
                 self.trajectory[step] = [posX, posY, posZ]
         #######################################################
-        # elif uc == "circle":
-        #     r = 0.075
-        #     self.trajectory = []
-        #     # Uniformely distributed angles
-        #     thetas = np.linspace(0, 2*np.pi, 120)
+        elif uc == "h-circle":
+            r = 0.07
+            self.trajectory = []
+            # Uniformely distributed angles
+            thetas = np.linspace(-np.pi/2, 1.5*np.pi, 120)  # h
 
-        #     laps = n_points // 120
-        #     if  (n_points % 120) != 0:
-        #         laps += 1
-        #     for i in range(laps):
-        #         # Circular coordinates on XY plane
-        #         x = posX + r * np.cos(thetas)
-        #         y = posY - r * np.sin(thetas) - r
-        #         z = np.full_like(x, posZ)  # Z constant
+            laps = n_points // 120
+            if (n_points % 120) != 0:
+                laps += 1
+            for i in range(laps):
+                # Circular coordinates on XY plane
+                x = posX + r * np.cos(thetas)
+                y = posY - r * np.sin(thetas) - r
+                z = np.full_like(x, posZ)  # Z constant
 
-        #         lap_traj = np.stack((x, y, z), axis=1)
-        #         self.trajectory.append(lap_traj)
+                lap_traj = np.stack((x, y, z), axis=1)
+                self.trajectory.append(lap_traj)
 
-        #     self.trajectory = np.vstack(self.trajectory)
+            self.trajectory = np.vstack(self.trajectory)
+        #######################################################
+        elif uc == "ah-circle":
+            r = 0.07
+            self.trajectory = []
+            # Uniformely distributed angles
+            thetas = np.linspace(-np.pi/2, (-5/2)*np.pi, 120)  # ah
+
+            laps = n_points // 120
+            if (n_points % 120) != 0:
+                laps += 1
+            for i in range(laps):
+                # Circular coordinates on XY plane
+                x = posX + r * np.cos(thetas)
+                y = posY - r * np.sin(thetas) - r
+                z = np.full_like(x, posZ)  # Z constant
+
+                lap_traj = np.stack((x, y, z), axis=1)
+                self.trajectory.append(lap_traj)
+
+            self.trajectory = np.vstack(self.trajectory)
         else:
             print("\n\tERROR DURING TRAJECTORY CALCULATION!!!\n")
 
-    def format_obs(self, force, torque, vel_ef, dist, eu_dist):
+    def format_obs(self, force, torque, vel_ef, dist, eu_dist, follow_vector):
         """
         Observation space is conformed by:
         - force: End effector measured force (axis X,Y,Z).
@@ -213,7 +272,24 @@ class Agent:
         - ef_vel: End effector measured Cartesian velocity (axis X,Y,Z, roll, pitch, yaw).
         - dist: Distance between end effector position and ideal trajectory position.
         - eu_dist: euclidean distance between end effector position and ideal trajectory position.
+        - follow_vector: Vector that indicates the direction of the trajectory at the current step.
+        Args:
+            force: End effector measured force (axis X,Y,Z).
+            torque: End effector measured torque (axis X,Y,Z).
+            vel_ef: End effector measured Cartesian velocity (axis X,Y,Z, roll, pitch, yaw).
+            dist: Distance between end effector position and ideal trajectory position.
+            eu_dist: Euclidean distance between end effector position and ideal trajectory position.
+            follow_vector: Vector that indicates the direction of the trajectory at the current step.
+        Returns:
+            obs: Observation dictionary with the normalized values.
+            invalid_value: Boolean indicating if there is an invalid value in the observation.
         """
+        # Normalize values
+        force = np.clip((force/self.max_force_threshold), -1.0, 1.0)
+        torque = np.clip((torque/self.max_torque_threshold), -1.0, 1.0)
+        vel_ef = np.clip((vel_ef/self.max_vel), -1.0, 1.0)
+        dist = np.clip((dist/self.max_dist), -1.0, 1.0)
+        eu_dist = np.clip((eu_dist/self.max_dist), -1.0, 1.0)
         # Create observation dict
         obs = {'F_wristX': force[0],
                     'F_wristY': force[1],
@@ -230,7 +306,10 @@ class Agent:
                     'X_dif': dist[0],
                     'Y_dif': dist[1],
                     'Z_dif': dist[2],
-                    'euclidean_dist': eu_dist}
+                    'euclidean_dist': eu_dist,
+                    'X_follow_vector': follow_vector[0], # Already normalized
+                    'Y_follow_vector': follow_vector[1],
+                    'Z_follow_vector': follow_vector[2]}
         # Check Inf or NaN posible values
         invalid_value = False
         for key, value in obs.items():
@@ -239,38 +318,74 @@ class Agent:
         return obs, invalid_value
 
     def save_data(self, file_name, data, mode):
+        """Save data to a CSV file.
+        Args:
+            file_name: The name of the file to save the data.
+            data: The data to save in the file.
+            mode: The mode to open the file. It can be 'w' for write or 'a' for append.
+        """
         with open(file_name, mode=mode, newline="") as file:
             writer = csv.writer(file)
             writer.writerow(data)
 
     def calculate_dist(self, step, ef_position):
+        """Calculate the distance between the end effector position and the ideal trajectory position.
+        Args:
+            step: The current step in the trajectory.
+            ef_position: The end effector position in the form of a list [x, y, z].
+        Returns:
+            dist: The distance between the end effector position and the ideal trajectory position.
+        """
         # Timestep advance 0.1 at a time, to get index is mandatory multiply the timestep by 10
-        # % 480 is just a safety trick, it should never be effective, because step should not exceed 48
         ideal_position = self.trajectory[int(((step*10)-1)%self.points_traj)]
         # Calculate distance 
         dist = ideal_position - ef_position
         return dist
 
     def calculate_eu_dist(self, step, ef_position):
+        """Calculate the euclidean distance between the end effector position and the ideal trajectory position.
+        Args:
+            step: The current step in the trajectory.
+            ef_position: The end effector position in the form of a list [x, y, z].
+        Returns:
+            eud: The euclidean distance between the end effector position and the ideal trajectory position.
+        """
         # Timestep advance 0.1 at a time, to get index is mandatory multiply the timestep by 10
-        # % 480 is just a safety trick, it should never be effective, because step should not exceed 48
         ideal_position = self.trajectory[int(((step*10)-1)%self.points_traj)]
         # Calculate euclidean distance 
         eud = np.linalg.norm(ideal_position - ef_position)
         return eud
+    
+    def calculate_follow_vector(self, step):
+        """Calculate the follow vector that indicates the direction of the trajectory at the current step.
+        Args:
+            step: The current step in the trajectory.
+        Returns:
+            follow_vector: The vector that indicates the direction of the trajectory at the current step.
+        """
+        # Timestep advance 0.1 at a time, to get index is mandatory multiply the timestep by 10
+        current_ideal_position = self.trajectory[int(((step*10)-1)%self.points_traj)]
+        next_ideal_position = self.trajectory[int(((step*10))%self.points_traj)]
+        follow_vector = next_ideal_position - current_ideal_position
+        follow_vector = follow_vector / np.linalg.norm(follow_vector)
+        return follow_vector
 
     def step(self, timestep: dm_env.TimeStep) -> np.ndarray:
         """
-        Computes velocities in the x/y plane parameterized in time.
+        Provides robot actions every control timestep.
+        This method is called by the environment at each control timestep.
+        It calculates the trajectory to follow, the distance to the trajectory,
+        the euclidean distance to the trajectory, and the follow vector.
+        It also communicates with the stable-baselines agent to receive the action to be executed 
+        by the robot and to send observations.
+        It returns the action to be executed by the robot.
+        The action is a numpy array with the same shape as the action specification of the environment.
+        Args:
+            timestep: The current timestep of the environment.
+        Returns:
+            action: The action to be executed by the robot.
         """
-        # keys = timestep.observation.keys()
-        # print(keys) -> Result:
-        # ['panda_joint_pos', 'panda_joint_vel', 'panda_joint_torques', 'panda_tcp_pos', 
-        # 'panda_tcp_quat', 'panda_tcp_rmat', 'panda_tcp_pose', 'panda_tcp_vel_world', 
-        # 'panda_tcp_vel_relative', 'panda_tcp_pos_control', 'panda_tcp_quat_control', 
-        # 'panda_tcp_rmat_control', 'panda_tcp_pose_control', 'panda_tcp_vel_control', 
-        # 'panda_force', 'panda_torque', 'panda_gripper_width', 'panda_gripper_state', 
-        # 'panda_twist_previous_action', 'time']
+        # Get the current timestep observation
         time_t = timestep.observation['time'][0]
         force = timestep.observation['panda_force']
         torque = timestep.observation['panda_torque']
@@ -284,14 +399,16 @@ class Agent:
             print(f"Current trajectory is [{self.traj_dict[index_traj]}]")
             self.calculate_trajectory(ef_position, self.traj_dict[index_traj])
             self.init = False
+        # Calculate distance and follow vector
         eu_dist = self.calculate_eu_dist(time_t, ef_position)
         dist = self.calculate_dist(time_t, ef_position)
+        follow_vector = self.calculate_follow_vector(time_t)
 
         ### COMMUNICATE WITH STABLE-BASELINES ###
         if not self._waitingforrlcommands:
             if self.env_reset or ((time_t - self.time_state) >= self.step_time):
                 # Create observation dict
-                obs, invalid_value = self.format_obs(force, torque, vel_ef, dist, eu_dist)
+                obs, invalid_value = self.format_obs(force, torque, vel_ef, dist, eu_dist, follow_vector)
                 if not invalid_value:
                     self.agent_side.stepSendObs(obs) # RL was waiting for this; no reward is actually needed here
                     self._waitingforrlcommands = True
@@ -315,7 +432,7 @@ class Agent:
                 elif whattodo[0] == AgentSide.WhatToDo.RESET_SEND_OBS:
                     print("\nRESETTING ENV TO START NEW EPISODE...\n")
                     if self.env_reset:
-                        obs, invalid_value = self.format_obs(force, torque, vel_ef, dist, eu_dist)
+                        obs, invalid_value = self.format_obs(force, torque, vel_ef, dist, eu_dist, follow_vector)
                         self.agent_side.resetSendObs(obs)
                         self.time_state = time_t
                     else:
@@ -326,13 +443,20 @@ class Agent:
                     sys.exit()
                 else:
                     raise(ValueError("Unknown indicator data"))
-                # self.time_state = time_t
         return self.action
 
     def reset(self):
+        """Reset the environment to start a new episode.
+        This method is called by the environment when a new episode starts.
+        It resets the episode counter, sets the waiting flag to True,
+        resets the environment, recalculates the trajectory, and sends the observation to the agent side.
+        It also calculates the distance to the trajectory, the euclidean distance, and the follow vector.
+        """
+        # Reset the episode counter and waiting fla
         self.episode_cont += 1
         self._waitingforrlcommands = True
         self.env_reset = True
+        # Get the current timestep observation
         timestep = self.env.reset()
         time_t = timestep.observation['time'][0]
         force = timestep.observation['panda_force']
@@ -345,17 +469,16 @@ class Agent:
         index_traj = (self.episode_cont // 100) % len(self.traj_dict)
         print(f"Current trajectory is [{self.traj_dict[index_traj]}]")
         self.calculate_trajectory(ef_position, self.traj_dict[index_traj])
-        self.calculate_trajectory(ef_position)
-        # calculate euclidean dist and exis-dist
+        # Calculate distance and follow vector
         eu_dist = self.calculate_eu_dist(time_t, ef_position)
         dist = self.calculate_dist(time_t, ef_position)
+        follow_vector = self.calculate_follow_vector(time_t)
         # reset time-state (for state machine)
         self.time_state = time_t
         # Create observation dict
-        obs, invalid_value = self.format_obs(force, torque, vel_ef, dist, eu_dist)
-        # Just send observation dict
+        obs, invalid_value = self.format_obs(force, torque, vel_ef, dist, eu_dist, follow_vector)
+        # Send observation dict
         self.agent_side.resetSendObs(obs)
-        #time.sleep(0.1)
         print(f"Agent-Side:\tRESET obs send\n")
 
 
@@ -389,20 +512,15 @@ if __name__ == '__main__':
     panda_env.add_entity_initializers([
         initialize_arm])
 
-    # physics = mjcf.Physics.from_mjcf_model(panda_env._arena.mjcf_model)
-    # panda_env.robots['panda'].position_gripper(position=np.array([-0.3, 0.25, 0.4]),
-    #                                                     quaternion=np.array([1.0, 0.0, 0.0, 0.0]),
-    #                                                     physics=physics)
-
-    # TODO: emplear native attachmet para el myoarm y sus includes en vez de un XML kilométrico
     # Form absolute path to the XML file
     XML_ARM_PATH = os.path.join(script_dir, "../../models/myo_sim/arm/myoarmPanda.xml")
     
     myoarm = MyoArm(xml_path=XML_ARM_PATH)
     panda_env._arena.attach(myoarm)
 
+    # Print the MJCF model of the environment
+    # This piece of code is only used to print the MJCF model of the environment to the console.
     bodies = panda_env._arena.mjcf_model.worldbody.find_all('body')
-    # print(f"  ********\n\n {bodies} \n\n  ********")
     wrist = None
     ee = None
     for i, body in enumerate(bodies):
@@ -418,13 +536,15 @@ if __name__ == '__main__':
     if ee == None or wrist == None:
             print("Error finding wrist or end effector !!")
             exit()
-    # Establecer restricción entre la muñeca y el efector final para que se muevan
+
+    # Add a weld constraint to the end-effector and the wrist
+    # This will make the wrist follow the end-effector position and orientation
     equality_constraint = panda_env._arena.mjcf_model.equality.add(
         'weld',
         body1=ee,  
         body2=wrist, 
-        relpose=[0.025, 0.0, 0.115, # Posición de la muñeca desde el efector del robot
-                0.0, 0.87, -0.50, 0.0],  # Rotación de la muñeca respecto del efector del robot (180º,0º,60º)
+        relpose=[0.025, 0.0, 0.115, # Position of the wrist relative to the end-effector
+                0.0, 0.87, -0.50, 0.0],  # Orientation of the wrist relative to the end-effector (180º,0º,60º)
         )
 
     # Obtain joint names of the resulting enviroment

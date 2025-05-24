@@ -1,10 +1,20 @@
+"""Example of an agent that communicates with a stable-baselines agent
+through sockets in a Panda environment with a MyoArm attached.
+This agent does not implement any RL logic, it just sends the
+actions received from the stable-baselines agent to the environment.
+It also receives observations from the environment and sends them
+to the stable-baselines agent.
+It is used to control a MyoArm attached to a Panda robot in a simulated environment.
+The main method is `step`, which is called at each control timestep.
+Other methods are used to format the observations, save data to a CSV file,
+and reset the environment. This example should help you to build your own
+agent that communicates with a stable-baselines agent through sockets.
 """
-Imports a custom enviroment from a XML file.
-Produces a Cartesian motion using the Cartesian actuation mode.
-"""
+
 import os
 import sys
 import argparse
+import random
 import csv
 import dm_env
 import numpy as np
@@ -25,6 +35,7 @@ from dm_control.composer import Entity
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")))
 from rl_spin_decoupler.spindecoupler import AgentSide
+from rl_spin_decoupler.socketcomms.comms import BaseCommPoint
 
 class MyoArm(Entity):
     """An entity class that wraps an MJCF model without any additional logic."""
@@ -39,150 +50,79 @@ class MyoArm(Entity):
 
 class Agent:
     """Agents are used to control a robot's actions given
-    current observations and rewards.
+    current observations and rewards. This agent communicates with
+    a stable-baselines agent through sockets.
+    This agent does not implement any RL logic, it just sends the
+    actions received from the stable-baselines agent to the environment.
+    It also receives observations from the environment and sends them
+    to the stable-baselines agent.
     """
 
-    def __init__(self, spec: specs.BoundedArray, ipbaselinespart:str, portbaselinespart:int) -> None:
+    def __init__(self, spec: specs.BoundedArray, portbaselinespart:int) -> None:
         self._spec = spec
-        self.state = 0
+        # Initialize variables
         self.time_state = 0.1
         self.env_reset = True
         self.init = True
+        # Flag to indicate if the agent is waiting for RL commands
         self._waitingforrlcommands = True
-        self.step_time = 0.55 # segundos que va a pasar el agente realizando un mismo movimiento
+        # Time in seconds that the agent will wait before receiving the next action
+        self.step_time = 0.35
         self.action = np.zeros(shape=self._spec.shape, dtype=self._spec.dtype)
         # Create an instance of the communication object and start communication
-        self.agent_side = AgentSide(ipbaselinespart, portbaselinespart)
+        self.agent_side = AgentSide(BaseCommPoint.get_ip(), portbaselinespart)
+        self.points_traj = 5000
 
     def pass_args(self, env: Environment, joint_names):
         self.env = env
         self.joint_names = joint_names
 
-    def calculate_trajectory(self, ef_position):
-        state = 1
-        cont = 1
-        cycles = 30
-        posX = ef_position[0]; posY = ef_position[1]; posZ = ef_position[2]
-        constant_vel = 0.05
-        incT = 0.1
-        trajectory = np.zeros((480, 3), dtype=np.float32)
-        trajectory[0] = [posX, posY, posZ]
-        for step in range(1, 480): # Ideal square trajectory
-            if state == 0: # Move through Z axis
-                posZ += incT * constant_vel
-                cont += 1
-            if cont >= cycles:
-                state = 1
-                cont = 0
-            elif state == 1: # Move through X axis
-                posX += incT * constant_vel
-                cont += 1
-            if cont >= cycles:
-                state = 2
-                cont = 0
-            elif state == 2: # Move through Y axis
-                posY += incT * (-1*constant_vel)
-                cont += 1
-            if cont >= cycles:
-                state = 3
-                cont = 0
-            elif state == 3: # Move through X axis
-                posX += incT * (-1*constant_vel)
-                cont += 1
-            if cont >= cycles:
-                state = 4
-                cont = 0
-            elif state == 4: # Move through Y axis
-                posY += incT * constant_vel
-                cont += 1
-            if cont >= cycles:
-                state = 1
-                cont = 0
-            trajectory[step] = [posX, posY, posZ]
-        return trajectory
-
-    def format_obs(self, force, torque, vel_ef, dist, time_step):
+    def format_obs(self, ..., ..., ..., ..., ..., ...):
         """
-        Observation space is conformed by:
-        - force: End effector measured force (axis X,Y,Z).
-        - torque: End effector measured torque (axis X,Y,Z).
-        - ef_vel: End effector measured Cartesian velocity (axis X,Y,Z, roll, pitch, yaw).
-        - dist: Distance between end effector position and ideal trajectory position.
-        - time_step: Time of current step.
+        Format the observations to be sent to the stable-baselines agent.
+        Args:
+            ...: The observations to be formatted.
+        Returns:
+            obs: A dictionary containing the formatted observations.
+            invalid_value: A boolean indicating if the observations are valid.
         """
-        # Create observation dict
-        obs = {'F_wristX': force[0],
-                    'F_wristY': force[1],
-                    'F_wristZ': force[2],
-                    'T_wristX': torque[0],
-                    'T_wristY': torque[1],
-                    'T_wristZ': torque[2],
-                    'Vx': vel_ef[0],
-                    'Vy': vel_ef[1],
-                    'Vz': vel_ef[2],
-                    'roll': vel_ef[3],
-                    'pitch': vel_ef[4],
-                    'yaw': vel_ef[5],
-                    'X_dif': dist[0],
-                    'Y_dif': dist[1],
-                    'Z_dif': dist[2],
-                    'time_step': time_step}
-        return obs
+        return obs, invalid_value
 
     def save_data(self, file_name, data, mode):
+        """Save data to a CSV file.
+        Args:
+            file_name: The name of the file to save the data.
+            data: The data to save in the file.
+            mode: The mode to open the file. It can be 'w' for write or 'a' for append.
+        """
         with open(file_name, mode=mode, newline="") as file:
             writer = csv.writer(file)
             writer.writerow(data)
 
-    def calculate_dist(self, step, ef_position):
-        # Timestep advance 0.1 at a time, to get index is mandatory multiply the timestep by 10
-        # % 480 is just a safety trick, it should never be effective, because step should not exceed 48
-        ideal_position = self.trajectory[int(((step*10)-1)%480)]
-        # Calculate distance 
-        dist = ideal_position - ef_position
-        return dist
-
-    def calculate_eu_dist(self, step, ef_position):
-        # Timestep advance 0.1 at a time, to get index is mandatory multiply the timestep by 10
-        # % 480 is just a safety trick, it should never be effective, because step should not exceed 48
-        ideal_position = self.trajectory[int(((step*10)-1)%480)]
-        # Calculate euclidean distance 
-        eud = np.linalg.norm(ideal_position - ef_position)
-        return eud
-
     def step(self, timestep: dm_env.TimeStep) -> np.ndarray:
         """
-        Computes velocities in the x/y plane parameterized in time.
+        Provides robot actions every control timestep.
+        This method is called by the environment at each control timestep.
+        It also communicates with the stable-baselines agent to receive the action to be executed 
+        by the robot and to send observations.
+        It returns the action to be executed by the robot.
+        The action is a numpy array with the same shape as the action specification of the environment.
+        Args:
+            timestep: The current timestep of the environment.
+        Returns:
+            action: The action to be executed by the robot.
         """
-        # keys = timestep.observation.keys()
-        # print(keys) -> Result:
-        # ['panda_joint_pos', 'panda_joint_vel', 'panda_joint_torques', 'panda_tcp_pos', 
-        # 'panda_tcp_quat', 'panda_tcp_rmat', 'panda_tcp_pose', 'panda_tcp_vel_world', 
-        # 'panda_tcp_vel_relative', 'panda_tcp_pos_control', 'panda_tcp_quat_control', 
-        # 'panda_tcp_rmat_control', 'panda_tcp_pose_control', 'panda_tcp_vel_control', 
-        # 'panda_force', 'panda_torque', 'panda_gripper_width', 'panda_gripper_state', 
-        # 'panda_twist_previous_action', 'time']
+        # Get the current timestep observation
         time_t = timestep.observation['time'][0]
-        force = timestep.observation['panda_force']
-        torque = timestep.observation['panda_torque']
-        vel_ef = timestep.observation['panda_tcp_vel_world']
-        ef_position = [timestep.observation['panda_tcp_pose'][0], # X
-                        timestep.observation['panda_tcp_pose'][1], # Y
-                        timestep.observation['panda_tcp_pose'][2]] # Z
-        # Calculate trajectory on first step:
-        if self.init:
-            self.trajectory = self.calculate_trajectory(ef_position)
-            self.init = False
-        # eu_dist = self.calculate_eu_dist(time_t, ef_position)
-        dist = self.calculate_dist(time_t, ef_position)
 
         ### COMMUNICATE WITH STABLE-BASELINES ###
         if not self._waitingforrlcommands:
             if self.env_reset or ((time_t - self.time_state) >= self.step_time):
                 # Create observation dict
-                obs = self.format_obs(force, torque, vel_ef, dist, time_t)
-                self.agent_side.stepSendObs(obs) # RL was waiting for this; no reward is actually needed here
-                self._waitingforrlcommands = True
+                obs, invalid_value = self.format_obs(..., ..., ..., ..., ..., ...)
+                if not invalid_value:
+                    self.agent_side.stepSendObs(obs) # RL was waiting for this; no reward is actually needed here
+                    self._waitingforrlcommands = True
         else:
             # Receive the indicator of what to do
             whattodo = self.agent_side.readWhatToDo()
@@ -203,7 +143,7 @@ class Agent:
                 elif whattodo[0] == AgentSide.WhatToDo.RESET_SEND_OBS:
                     print("\nRESETTING ENV TO START NEW EPISODE...\n")
                     if self.env_reset:
-                        obs = self.format_obs(force, torque, vel_ef, dist, time_t)
+                        obs, invalid_value = self.format_obs(..., ..., ..., ..., ..., ...)
                         self.agent_side.resetSendObs(obs)
                         self.time_state = time_t
                     else:
@@ -214,29 +154,26 @@ class Agent:
                     sys.exit()
                 else:
                     raise(ValueError("Unknown indicator data"))
-                # self.time_state = time_t
         return self.action
 
     def reset(self):
+        """Reset the environment to start a new episode.
+        This method is called by the environment when a new episode starts.
+        It resets the episode counter, sets the waiting flag to True and resets the environment.
+        """
+        # Reset the episode counter and waiting fla
         self._waitingforrlcommands = True
         self.env_reset = True
+        # Get the current timestep observation
         timestep = self.env.reset()
         time_t = timestep.observation['time'][0]
-        force = timestep.observation['panda_force']
-        torque = timestep.observation['panda_torque']
-        vel_ef = timestep.observation['panda_tcp_vel_world']
-        ef_position = [timestep.observation['panda_tcp_pose'][0], # X
-                        timestep.observation['panda_tcp_pose'][1], # Y
-                        timestep.observation['panda_tcp_pose'][2]] # Z
-        # eu_dist = self.calculate_eu_dist(time_t, ef_position)
-        dist = self.calculate_dist(time_t, ef_position)
+        # Recalculate trajectory
         # reset time-state (for state machine)
         self.time_state = time_t
         # Create observation dict
-        obs = self.format_obs(force, torque, vel_ef, dist, time_t)
-        # Just send observation dict
+        obs, invalid_value = self.format_obs(..., ..., ..., ..., ..., ...)
+        # Send observation dict
         self.agent_side.resetSendObs(obs)
-        #time.sleep(0.1)
         print(f"Agent-Side:\tRESET obs send\n")
 
 
@@ -244,7 +181,6 @@ if __name__ == '__main__':
     # Argument parsing.
     parser = argparse.ArgumentParser(description="Sockets port communication is required")
     parser.add_argument("-p", "--port", type=int, help="Sockets port communication")
-    parser.add_argument("-i", "--ip", type=str, help="IP of host machine: X.X.X.X")
     args = parser.parse_args()
 
     # Load environment from an MJCF file.
@@ -271,20 +207,15 @@ if __name__ == '__main__':
     panda_env.add_entity_initializers([
         initialize_arm])
 
-    # physics = mjcf.Physics.from_mjcf_model(panda_env._arena.mjcf_model)
-    # panda_env.robots['panda'].position_gripper(position=np.array([-0.3, 0.25, 0.4]),
-    #                                                     quaternion=np.array([1.0, 0.0, 0.0, 0.0]),
-    #                                                     physics=physics)
-
-    # TODO: emplear native attachmet para el myoarm y sus includes en vez de un XML kilométrico
     # Form absolute path to the XML file
     XML_ARM_PATH = os.path.join(script_dir, "../../models/myo_sim/arm/myoarmPanda.xml")
     
     myoarm = MyoArm(xml_path=XML_ARM_PATH)
     panda_env._arena.attach(myoarm)
 
+    # Print the MJCF model of the environment
+    # This piece of code is only used to print the MJCF model of the environment to the console.
     bodies = panda_env._arena.mjcf_model.worldbody.find_all('body')
-    # print(f"  ********\n\n {bodies} \n\n  ********")
     wrist = None
     ee = None
     for i, body in enumerate(bodies):
@@ -300,13 +231,15 @@ if __name__ == '__main__':
     if ee == None or wrist == None:
             print("Error finding wrist or end effector !!")
             exit()
-    # Establecer restricción entre la muñeca y el efector final para que se muevan
+
+    # Add a weld constraint to the end-effector and the wrist
+    # This will make the wrist follow the end-effector position and orientation
     equality_constraint = panda_env._arena.mjcf_model.equality.add(
         'weld',
         body1=ee,  
         body2=wrist, 
-        relpose=[0.025, 0.0, 0.115, # Posición de la muñeca desde el efector del robot
-                0.0, 0.87, -0.50, 0.0],  # Rotación de la muñeca respecto del efector del robot (180º,0º,60º)
+        relpose=[0.025, 0.0, 0.115, # Position of the wrist relative to the end-effector
+                0.0, 0.87, -0.50, 0.0],  # Orientation of the wrist relative to the end-effector (180º,0º,60º)
         )
 
     # Obtain joint names of the resulting enviroment
@@ -321,7 +254,7 @@ if __name__ == '__main__':
         # Print the full action, observation and reward specification
         utils.full_spec(env)
         # Initialize the agent
-        agent = Agent(env.action_spec(), args.ip, args.port)
+        agent = Agent(env.action_spec(), args.port)
         agent.pass_args(env, joint_names)
         # Run the environment and agent inside the GUI.
         # app = utils.ApplicationWithPlot(width=1440, height=860)
