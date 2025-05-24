@@ -1,136 +1,137 @@
 import csv
+import os
+import re
 import matplotlib.pyplot as plt
 import numpy as np
 
-def plot_trajectory(filename="panda_trajectory.csv", num_loops=3):
-    # Leer los datos del CSV
-    x_vals = []
-    y_vals = []
-    x_ideal = []
-    y_ideal = []
-    x_vals2 = []
-    y_vals2 = []
-    with open("panda_ideal_trajectory.csv", mode="r") as file:
+script_dir = os.path.dirname(os.path.abspath(__file__))
+files_path = os.path.join(script_dir, "../../data/")
+
+def plot_trajectory():
+    """ Reads trajectory data from a CSV and plots it over the XY plane. """
+    # Read trained model followed trajectory
+    posX, posY = [], []
+    file_model = files_path + "panda_traj_model.csv"
+    with open(file_model, mode="r") as file:
         reader = csv.reader(file)
-        next(reader)  # Saltar el encabezado
+        next(reader)  # Skip header
         for row in reader:
-            x_ideal.append(float(row[0]))  # Leer x
-            y_ideal.append(float(row[1]))  # Leer y
-    with open(filename, mode="r") as file:
-        reader = csv.reader(file)
-        next(reader)  # Saltar el encabezado
-        for row in reader:
-            x_vals.append(float(row[0]))  # Leer x
-            y_vals.append(float(row[1]))  # Leer y
-    with open("panda_trajectory_sb.csv", mode="r") as file:
-        reader = csv.reader(file)
-        next(reader)  # Saltar el encabezado
-        for row in reader:
-            x_vals2.append(float(row[0]))  # Leer x
-            y_vals2.append(float(row[1]))  # Leer y
-    # Graficar la trayectoria en el plano XY
-    colors = ["b", "r", "g"]
-    # Determinar el tamaño de cada vuelta
-    total_points = len(x_vals)
-    points_per_loop = total_points // num_loops  # Suponemos que todas las vueltas tienen el mismo número de puntos
-    # Dibujar cada vuelta con un color diferente
-    for i in range(num_loops):
-        start = i * points_per_loop
-        end = (i + 1) * points_per_loop if i < num_loops - 1 else total_points  # Asegurar que la última vuelta toma todos los puntos restantes
-        plt.plot(x_vals[start:end], y_vals[start:end], marker="o", linestyle="-", color=colors[i % len(colors)], label=f"Vuelta {i+1}")
-    plt.scatter(x_ideal, y_ideal, color='y', marker='*', label='Ideal')
-    plt.scatter(x_vals2, y_vals2, color='c', marker='*', label='SB')
+            posX.append(float(row[0]))  # X value
+            posY.append(float(row[1]))  # Y value
+
+    # Read ideal trajectory
+    with open(files_path + "panda_ideal_traj_model.csv", "r") as f:
+        line = f.read()
+    # Extract all matches of the form [x y z]
+    matches = re.findall(r"\[([^\]]+)\]", line)
+    # Convert matches to a numpy array
+    xy_array = np.array([
+        list(map(float, m.split()[:2]))
+        for m in matches
+    ])
+
+    x_ideal = xy_array[:, 0]
+    y_ideal = xy_array[:, 1]
+
+    # Plotting the trajectory over the XY plane
+    plt.figure(figsize=(8, 6))
+    plt.plot(posX, posY, marker='o', linestyle='-', color='r', label="Model Trajectory")
+    plt.plot(x_ideal, y_ideal, marker='o', linestyle='-', color='b', label="Ideal Trajectory")
+
     plt.xlabel("X (m)")
     plt.ylabel("Y (m)")
-    plt.title("Trayectoria del Efector Final en el plano XY")
+    plt.title("trajectory over XY plane")
     plt.legend()
     plt.grid(True)
     plt.show()
 
-def plot_forces_from_csv(filename="panda_forces.csv", timestep=0.1):
-    """Lee fuerzas Fx, Fy, Fz desde un CSV y las grafica en función del tiempo."""
+def plot_forces_from_csv(filename="panda_forces_model.csv", timestep=0.1, title=None):
+    """ Reads forces Fx, Fy, Fz from a CSV and plots them over time. """
     
-    # Listas para almacenar las fuerzas
+    # Lists to store the forces
     fx_vals, fy_vals, fz_vals = [], [], []
     
-    # Leer datos desde el archivo CSV
-    with open(filename, mode="r") as file:
+    # Read data from the CSV file
+    csvpath = files_path + filename
+    with open(csvpath, mode="r") as file:
         reader = csv.reader(file)
         for row in reader:
             fx_vals.append(float(row[0]))  # Fx
             fy_vals.append(float(row[1]))  # Fy
             fz_vals.append(float(row[2]))  # Fz
 
-    # Crear los timesteps con un salto de 0.1s
+    # Create the timesteps with a step of 0.1s
     timesteps = np.arange(0, len(fx_vals) * timestep, timestep)
 
-    # Graficar las fuerzas
+    # Plot the forces
     plt.figure(figsize=(8, 5))
     plt.plot(timesteps, fx_vals, label="Fx", color="r")  # Rojo
     plt.plot(timesteps, fy_vals, label="Fy", color="g")  # Verde
     plt.plot(timesteps, fz_vals, label="Fz", color="b")  # Azul
 
-    # Etiquetas y título
-    plt.xlabel("Tiempo (s)")
-    plt.ylabel("Fuerza (N)")
-    plt.title("Evolución de las Fuerzas del Efector Final en el Tiempo")
+    # Labels and title
+    plt.xlabel("Time (s)")
+    plt.ylabel("Force (N)")
+    plt.title(title)
     plt.legend()
     plt.grid(True)
     plt.show()
 
-def plot_torques_from_csv(filename="panda_torques.csv", timestep=0.1):
-    """Lee fuerzas Fx, Fy, Fz desde un CSV y las grafica en función del tiempo."""
+def plot_torques_from_csv(filename="panda_torques_model.csv", timestep=0.1, title=None):
+    """ Reads torques Tx, Ty, Tz from a CSV and plots them over time. """
     
-    # Listas para almacenar las fuerzas
+    # Lists to store the torques
     tx_vals, ty_vals, tz_vals = [], [], []
     
-    # Leer datos desde el archivo CSV
-    with open(filename, mode="r") as file:
+    # Read data from the CSV file
+    csvpath = files_path + filename
+    with open(csvpath, mode="r") as file:
         reader = csv.reader(file)
         for row in reader:
-            tx_vals.append(float(row[0]))  # Fx
-            ty_vals.append(float(row[1]))  # Fy
-            tz_vals.append(float(row[2]))  # Fz
+            tx_vals.append(float(row[0]))  # Tx
+            ty_vals.append(float(row[1]))  # Ty
+            tz_vals.append(float(row[2]))  # Tz
 
-    # Crear los timesteps con un salto de 0.1s
+    # Create the timesteps with a step of 0.1s
     timesteps = np.arange(0, len(tx_vals) * timestep, timestep)
 
-    # Graficar las fuerzas
+    # Plot the torques
     plt.figure(figsize=(8, 5))
     plt.plot(timesteps, tx_vals, label="Tx", color="r")  # Rojo
     plt.plot(timesteps, ty_vals, label="Ty", color="g")  # Verde
     plt.plot(timesteps, tz_vals, label="Tz", color="b")  # Azul
 
-    # Etiquetas y título
-    plt.xlabel("Tiempo (s)")
+    # Labels and title
+    plt.xlabel("Time (s)")
     plt.ylabel("Torque (Nm)")
-    plt.title("Evolución de los Torques del Efector Final en el Tiempo")
+    plt.title(title)
     plt.legend()
     plt.grid(True)
     plt.show()
 
-def plot_joint_torques_from_csv(filename="panda_joint_torques.csv", timestep=0.1):
-    """Lee fuerzas Fx, Fy, Fz desde un CSV y las grafica en función del tiempo."""
+def plot_joint_torques_from_csv(filename="panda_joint_torques_model.csv", timestep=0.1):
+    """ Reads joint torques from a CSV and plots them over time. """
     
-    # Listas para almacenar las fuerzas
+    # Lists to store the joint torques
     jt1_vals, jt2_vals, jt3_vals, jt4_vals, jt5_vals, jt6_vals, jt7_vals = [], [], [], [], [], [], []
     
-    # Leer datos desde el archivo CSV
-    with open(filename, mode="r") as file:
+    # Read data from the CSV file
+    csvpath = files_path + filename
+    with open(csvpath, mode="r") as file:
         reader = csv.reader(file)
         for row in reader:
-            jt1_vals.append(float(row[0]))  # Fx
-            jt2_vals.append(float(row[1]))  # Fy
-            jt3_vals.append(float(row[2]))  # Fz
-            jt4_vals.append(float(row[3]))  # Fz
-            jt5_vals.append(float(row[4]))  # Fz
-            jt6_vals.append(float(row[5]))  # Fz
-            jt7_vals.append(float(row[6]))  # Fz
+            jt1_vals.append(float(row[0]))  
+            jt2_vals.append(float(row[1]))  
+            jt3_vals.append(float(row[2]))  
+            jt4_vals.append(float(row[3]))  
+            jt5_vals.append(float(row[4]))  
+            jt6_vals.append(float(row[5]))  
+            jt7_vals.append(float(row[6]))  
 
     # Crear los timesteps con un salto de 0.1s
     timesteps = np.arange(0, len(jt1_vals) * timestep, timestep)
 
-    # Graficar las fuerzas
+    # Plot the joint torques
     plt.figure(figsize=(8, 5))
     plt.plot(timesteps, jt1_vals, label="Joint 1 Torque", color="r")  # Rojo
     plt.plot(timesteps, jt2_vals, label="Joint 2 Torque", color="g")  # Verde
@@ -140,78 +141,123 @@ def plot_joint_torques_from_csv(filename="panda_joint_torques.csv", timestep=0.1
     plt.plot(timesteps, jt6_vals, label="Joint 6 Torque", color="c")  # Azul
     plt.plot(timesteps, jt7_vals, label="Joint 7 Torque", color="k")  # Azul
 
-    # Etiquetas y título
-    plt.xlabel("Tiempo (s)")
-    plt.ylabel("Torque Articular (Nm)")
-    plt.title("Evolución de los Torques de las Articulaciones en el Tiempo")
+    # Labels and title
+    plt.xlabel("Time (s)")
+    plt.ylabel("Articular Torque (Nm)")
+    plt.title("Evolution of Joint Torques Over Time")
     plt.legend()
     plt.grid(True)
     plt.show()
 
-def plot_vel_ef_from_csv(filename="panda_vel_ef.csv", timestep=0.1, title="Evolución de las Velocidades del Efector Final en el Tiempo"):
-    """Lee fuerzas Fx, Fy, Fz desde un CSV y las grafica en función del tiempo."""
+def plot_vel_ef_from_csv(filename="panda_vel_ef_model.csv", timestep=0.1):
+    """ Reads end effector velocities Vx, Vy, Vz from a CSV and plots them over time. """
     
-    # Listas para almacenar las fuerzas
+    # Lists to store the velocities
     vx_vals, vy_vals, vz_vals = [], [], []
     
-    # Leer datos desde el archivo CSV
-    with open(filename, mode="r") as file:
+    # Read data from the CSV file
+    csvpath = files_path + filename
+    with open(csvpath, mode="r") as file:
         reader = csv.reader(file)
         for row in reader:
             vx_vals.append(float(row[0]))  # Fx
             vy_vals.append(float(row[1]))  # Fy
             vz_vals.append(float(row[2]))  # Fz
 
-    # Crear los timesteps con un salto de 0.1s
+    # Create the timesteps with a step of 0.1s
     timesteps = np.arange(0, len(vx_vals) * timestep, timestep)
 
-    # Graficar las fuerzas
+    # Plot the end effector velocities
     plt.figure(figsize=(8, 5))
 
-    plt.plot(timesteps, vx_vals, label="Vx", color="r",)  # Rojo
-    plt.plot(timesteps, vy_vals, label="Vy", color="g",)  # Verde
-    plt.plot(timesteps, vz_vals, label="Vz", color="b")  # Azul
+    plt.plot(timesteps, vx_vals, label="Vx", color="r",) 
+    plt.plot(timesteps, vy_vals, label="Vy", color="g",)  
+    plt.plot(timesteps, vz_vals, label="Vz", color="b")  
 
-    # Etiquetas y título
+    # Labels and title
     plt.ylim(-0.12, 0.12)
     plt.xlabel("Tiempo (s)")
     plt.ylabel("Velocidad (m/s)")
-    plt.title(title)
+    plt.title("End Effector Velocities Over Time")
     plt.legend()
     plt.grid(True)
     plt.show()
 
-def plot_eudist(timestep=0.1, filename="panda_euclidean.csv"):
-    # Leer los datos del CSV
-    eud = []
-    eud2 = []
-    with open(filename, mode="r") as file:
+def plot_force_over_trajectory():
+    """ Reads forces from a CSV and plots them over the trajectory. """
+    # Read trajectory data
+    posX, posY, posZ = [], [], []
+    file_model = files_path + "panda_traj_model.csv"
+    with open(file_model, mode="r") as file:
         reader = csv.reader(file)
-        next(reader)  # Saltar el encabezado
+        next(reader)  # Skip header
         for row in reader:
-            eud.append(float(row[0]))  # Leer x
+            posX.append(float(row[0]))  # X value
+            posY.append(float(row[1]))  # Y value
+            posZ.append(float(row[2]))  # Z value
     
-    with open("panda_euclidean_sb.csv", mode="r") as file:
-        reader = csv.reader(file)
-        next(reader)  # Saltar el encabezado
-        for row in reader:
-            eud2.append(float(row[0]))  # Leer x
+    # Read ideal trajectory
+    with open(files_path + "panda_ideal_traj_model.csv", "r") as f:
+        line = f.read()
+    # Extract all matches of the form [x y z]
+    matches = re.findall(r"\[([^\]]+)\]", line)
+    # Convert matches to a numpy array
+    xyz_array = np.array([
+        list(map(float, m.split()[:3]))
+        for m in matches
+    ])
 
-    timesteps = np.arange(0, len(eud) * timestep, timestep)
-    plt.figure(figsize=(8, 6))
-    plt.plot(timesteps, eud, label="euclidean distance", color="r",)  # Rojo
-    plt.plot(timesteps, eud2, label="euclidean distance sb", color="b",)  # Rojo
-    plt.xlabel("Tiempo (s)")
-    plt.ylabel("Euclidea (m)")
-    plt.title("Distancia Euclidea respecto a la trayectoria ideal")
-    plt.grid(True)
+    x_ideal = xyz_array[:, 0]
+    y_ideal = xyz_array[:, 1]
+    z_ideal = xyz_array[:, 2]
+    
+    # Read forces data
+    fx_vals, fy_vals, fz_vals = [], [], []
+    file_forces = files_path + "panda_forces_model_world.csv"
+    with open(file_forces, mode="r") as file:
+        reader = csv.reader(file)
+        for row in reader:
+            fx_vals.append(float(row[0]))  # Fx
+            fy_vals.append(float(row[1]))  # Fy
+            fz_vals.append(float(row[2]))  # Fz
+    
+    # normalice forces between -1 and 1
+    max_force = 55 # Assuming the maximum force is 55N
+    scale = 0.08  # Scale factor for the force vectors plotting
+    fx_vals = np.array(fx_vals)
+    fy_vals = np.array(fy_vals)
+    fz_vals = np.array(fz_vals)
+    fx_vals = np.clip(fx_vals/max_force, -1, 1) * scale
+    fy_vals = np.clip(fy_vals/max_force, -1, 1)
+    fz_vals = np.clip(fz_vals/max_force, -1, 1)
+    # Sample forces spaced by 5
+    sample_rate = 5
+    sampled_fx_vals = fx_vals[::sample_rate]
+    sampled_fy_vals = fy_vals[::sample_rate]
+    sampled_fz_vals = fz_vals[::sample_rate]
+    sampled_posX = posX[::sample_rate]
+    sampled_posY = posY[::sample_rate]
+    sampled_posZ = posZ[::sample_rate]
+    # Plot 3D trajectory and forces
+    fig = plt.figure(figsize=(10, 8))
+    ax = fig.add_subplot(111, projection='3d')
+    ax.plot(posX, posY, posZ, label='Model Trajectory', color='r')
+    ax.plot(x_ideal, y_ideal, z_ideal, label='Ideal Trajectory', color='b')
+    ax.quiver(sampled_posX, sampled_posY, sampled_posZ, sampled_fx_vals, sampled_fy_vals, sampled_fz_vals,\
+                length=0.1, normalize=False, color='g', label='Force Vector')
+    ax.set_xlabel('X (m)')
+    ax.set_ylabel('Y (m)')
+    ax.set_zlabel('Z (m)')
+    ax.set_title('3D Trajectory with Forces')
+    ax.legend()
     plt.show()
 
 if __name__ == '__main__':
-    # plot_trajectory()
-    # plot_eudist()
-    plot_torques_from_csv(filename="/home/oscar/panda_myoarm/data/panda_torques_model.csv")
-    plot_forces_from_csv(filename="/home/oscar/panda_myoarm/data/panda_forces_model.csv")
-    # plot_joint_torques_from_csv()
-    plot_vel_ef_from_csv(filename="/home/oscar/panda_myoarm/data/panda_vel_ef_model.csv")
-    # plot_vel_ef_from_csv(filename="panda_expected_vel.csv", timestep=0.1, title="Velocidades Ideales del Efector Final")
+    plot_trajectory()
+    plot_force_over_trajectory()
+    plot_forces_from_csv(title="Forces at the End Effector Over Time")
+    plot_torques_from_csv(title="Torques at the End Effector Over Time")
+    plot_joint_torques_from_csv()
+    plot_vel_ef_from_csv()
+    plot_forces_from_csv(filename="panda_forces_model_world.csv", title="Forces at the World Frame Over Time")
+    plot_torques_from_csv(filename="panda_torques_model_world.csv", title="Torques at the World Frame Over Time")
