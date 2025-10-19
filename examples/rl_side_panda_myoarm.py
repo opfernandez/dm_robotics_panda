@@ -238,10 +238,10 @@ def main():
                 train_freq=(1, "step"),
                 gradient_steps=1,
                 #action_noise=action_noise,  
-                verbose=1, 
+                verbose=1,
                 tensorboard_log=tensorboard_log_path)
 
-    name_prefix = "sac_panda_myoarm"
+    name_prefix = "sac_panda_myoarm_step_02"
     # Train the model
     callback_max_ep = StopTrainingOnMaxEpisodes(max_episodes=5e6, verbose=1)
     pb_callback = ProgressBarCallback()
