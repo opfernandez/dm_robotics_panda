@@ -213,13 +213,19 @@ class CustomEnv(gym.Env):
         return obs_array, reward, done, truncated, {}
 
 def main():
-    parser = argparse.ArgumentParser(description="Sockets port communication is required")
+    parser = argparse.ArgumentParser()
     parser.add_argument("-p", "--port", type=int, help="Sockets port communication")
+    parser.add_argument("-n", "--name", type=str, help="Checkpoint name")
     args = parser.parse_args()
+
+    if args.port is None or args.name is None:
+        import sys
+        print("Error: Port number and checkpoint name are required.\n Use -p and -n flags to provide them.")
+        sys.exit(1)
     
     # Get script dir for relative path settings
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    checkpoits_path = os.path.join(script_dir, "../../checkpoints")
+    checkpoints_path = os.path.join(script_dir, "../../checkpoints")
     tensorboard_log_path = os.path.join(script_dir, "../../train_logs")
     
     # Create custom enviroment
@@ -241,18 +247,19 @@ def main():
                 verbose=1,
                 tensorboard_log=tensorboard_log_path)
 
-    name_prefix = "sac_panda_myoarm_step_02"
+    name_prefix = args.name
+    print(f"Training with checkpoint name: {name_prefix}, results will be saved in: {checkpoints_path}")
     # Train the model
     callback_max_ep = StopTrainingOnMaxEpisodes(max_episodes=5e6, verbose=1)
     pb_callback = ProgressBarCallback()
     checkpoint_callback = CheckpointCallback(
         save_freq=50000,  # save model every 50k steps
-        save_path=checkpoits_path,
+        save_path=checkpoints_path,
         name_prefix=name_prefix
     )
     replay_buffer_callback = SaveReplayBufferCallback(
         save_freq=250_000,
-        save_path=checkpoits_path,  
+        save_path=checkpoints_path,  
         name_prefix=name_prefix,
         verbose=1
     )
@@ -260,7 +267,7 @@ def main():
     model.learn(int(1e10), callback=callbacks)
 
     # Save the resulting model
-    model.save("SAC-SB3")
+    model.save(name_prefix + "_final_model")
 
 if __name__ == "__main__":
     main()
