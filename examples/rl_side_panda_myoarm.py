@@ -238,7 +238,7 @@ def main():
 
     model = SAC("MlpPolicy", env,
                 learning_rate=0.0005, #0.0003 0.001
-                learning_starts=10000,
+                learning_starts=1000,
                 batch_size = 256,
                 gamma=0.9999,
                 train_freq=(1, "step"),

@@ -426,6 +426,7 @@ if __name__ == '__main__':
     # Argument parsing.
     parser = argparse.ArgumentParser(description="Trained model for inference")
     parser.add_argument("-m", "--model", type=str, help="name of the .zip file resulting from training")
+    parser.add_argument("-t", "--trajectory", type=str, default="h-square", help="type of trajectory to follow: ah-square, h-square, ah-triangle, h-triangle, ah-circle, h-circle")
     args = parser.parse_args()
 
     # Load environment from an MJCF file.
