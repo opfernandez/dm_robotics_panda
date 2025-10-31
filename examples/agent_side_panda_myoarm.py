@@ -5,7 +5,7 @@ import random
 import csv
 import dm_env
 import numpy as np
-
+import time
 from dm_control import composer, mjcf
 from dm_env import specs
 
@@ -49,7 +49,6 @@ class Agent:
         self._spec = spec
         # Initialize variables
         self.time_state = 0.1
-        self.env_reset = True
         self.init = True
         # Flag to indicate if the agent is waiting for RL commands
         self._waitingforrlcommands = True
@@ -386,6 +385,7 @@ class Agent:
         Returns:
             action: The action to be executed by the robot.
         """
+        whattodo = None
         # Get the current timestep observation
         time_t = timestep.observation['time'][0]
         force = timestep.observation['panda_force']
@@ -394,6 +394,7 @@ class Agent:
         ef_position = [timestep.observation['panda_tcp_pose'][0], # X
                         timestep.observation['panda_tcp_pose'][1], # Y
                         timestep.observation['panda_tcp_pose'][2]] # Z
+        print("--"*30)
         # Calculate trajectory on first step:
         if self.init:
             index_traj = ( self.episode_cont // 100) % len(self.traj_dict)
@@ -404,20 +405,23 @@ class Agent:
         eu_dist = self.calculate_eu_dist(time_t, ef_position)
         dist = self.calculate_dist(time_t, ef_position)
         follow_vector = self.calculate_follow_vector(time_t)
-        print(f"\tStep Time: {time_t:.2f}")
+        print(f"\tStep Time: [{time_t:.2f}] | Last Action Time: [{self.time_state:.2f}]")
 
         ### COMMUNICATE WITH STABLE-BASELINES ###
         if not self._waitingforrlcommands:
-            if self.env_reset or (time_t >= self.step_time):
+            print(f"Not waiting for RL commands...")
+            if ((time_t - self.time_state) >= self.step_time - 0.09):
+                print(f"Sending step obs to Agent-Side...")
                 # Create observation dict
                 obs, invalid_value = self.format_obs(force, torque, vel_ef, dist, eu_dist, follow_vector)
                 if not invalid_value:
                     self.agent_side.stepSendObs(obs) # RL was waiting for this; no reward is actually needed here
                     self._waitingforrlcommands = True
-                    print(f"Sent STEP [{time_t:.2f}] obs to Agent-Side")
+                    print(f"Obs sent, now waiting for RL commands\n")
         else:
             # Receive the indicator of what to do
-            whattodo = self.agent_side.readWhatToDo()
+            while whattodo is None:
+                whattodo = self.agent_side.readWhatToDo()
             if whattodo is not None:
             # Select the case
                 if  whattodo[0] == AgentSide.WhatToDo.REC_ACTION_SEND_OBS:
@@ -426,20 +430,14 @@ class Agent:
                     self._waitingforrlcommands = False # from now on, we are waiting to execute the action
                     self.agent_side.stepSendLastActDur(lat)
                     self.action = np.array(list(sb_action.values()), dtype=np.float32)
-                    self.env_reset = False
                     self.time_state = time_t
-                    print("--"*30)
-                    print(f"\tReceived STEP [{time_t:.2f}] action: {sb_action}") 
+                    print("**"*30)
+                    print(f"Received action: {sb_action}") 
                     print(f"After [{lat:.2f}] time")
-                    print("--"*30)
+                    print("**"*30)
                 elif whattodo[0] == AgentSide.WhatToDo.RESET_SEND_OBS:
                     print("\nRESETTING ENV TO START NEW EPISODE...\n")
-                    if self.env_reset:
-                        obs, invalid_value = self.format_obs(force, torque, vel_ef, dist, eu_dist, follow_vector)
-                        self.agent_side.resetSendObs(obs)
-                        self.time_state = time_t
-                    else:
-                        self.reset()
+                    self.reset()
                 elif whattodo[0] == AgentSide.WhatToDo.FINISH:
                     # Finish training
                     print("Experiment finished.")
@@ -448,6 +446,7 @@ class Agent:
                     raise(ValueError("Unknown indicator data"))
             else:
                 print("No data received from stable-baselines agent.")
+        print("--"*30)
         return self.action
 
     def reset(self):
@@ -460,7 +459,6 @@ class Agent:
         # Reset the episode counter and waiting fla
         self.episode_cont += 1
         self._waitingforrlcommands = True
-        self.env_reset = True
         # Get the current timestep observation
         timestep = self.env.reset()
         time_t = timestep.observation['time'][0]

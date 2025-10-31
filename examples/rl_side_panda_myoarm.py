@@ -1,6 +1,7 @@
 import os
 import sys
 import numpy as np
+import time
 import argparse
 from stable_baselines3 import SAC
 from stable_baselines3.common.callbacks import StopTrainingOnMaxEpisodes, ProgressBarCallback, CallbackList, CheckpointCallback, BaseCallback
@@ -51,12 +52,13 @@ class CustomEnv(gym.Env):
         up_ap_limits = np.array([self.lineal_vel, self.lineal_vel, self.lineal_vel, self.angular_vel, self.angular_vel, self.angular_vel], dtype=np.float32)
         self.action_space = Box(low=low_ap_limits, high=up_ap_limits, shape=(6,), dtype=np.float32)
         # Set the maximum number of steps per episode
-        self.max_step = 400
-        self.end_ep_cont = 0
+        self.max_episode_time = 180.0  # seconds
+        self.episode_time_counter = 0.0
         # If robot exceeds any of these threshold the episode ends
         self.max_force_threshold = 25
         self.max_torque_threshold = 55
         self.prev_eud = None
+        self.last_time = time.time()
 
     def reset(self, seed=None, options=None):
         """
@@ -72,13 +74,15 @@ class CustomEnv(gym.Env):
         # Communicate SB3 loop with Agent loop using sockets
         reseting = True
         self.prev_eud = None
+        t = time.time()
         while reseting:
             try:
                 obs = self.baselines_side.resetGetObs(timeout=360)
                 reseting = False
             except Exception as e:
                 print(f"Error in communication descrption: {e}")
-            
+        print(f"Elapsed time for reset: {time.time() - t:.5f} s")
+        self.last_time = time.time()
         # print(f"SB-Side:\tObservation received after reset:{obs}\n")
         return np.array(list(obs.values()), dtype=np.float32), {}
 
@@ -145,7 +149,7 @@ class CustomEnv(gym.Env):
         # SAC works better with normalization
         total_rw = np.clip(total_rw, -10.0, 10.0)
 
-        print(f"\nrw_dist={rw_dist:.2f}\n" 
+        print(f"\n\nrw_dist={rw_dist:.2f}\n" 
             f"rw_safety={-rw_safety:.2f}\n"
             f"rw_lineal_vel={-rw_lineal_vel:.2f}\n"
             f"rw_angular_vel={-rw_angular_vel:.2f}\n")
@@ -163,20 +167,22 @@ class CustomEnv(gym.Env):
             truncated (bool): Whether the episode was truncated.
             done (bool): Whether the episode is done.
         """
-        # Increment the episode counter
-        self.end_ep_cont += 1
         done = False
         truncated = False
         # Check force and torque thresholds
         force_check = np.any(np.abs(obs[0:3]) >= (self.max_force_threshold/self.max_force_threshold))
         torque_check = np.any(np.abs(obs[3:6]) >= (self.max_torque_threshold/self.max_torque_threshold))
         if force_check or torque_check:
+            print("\n\nSending DONE to Agent Side")
+            print(f"Episode finished after {self.episode_time_counter:.2f} s\n")
             done = True
-            self.end_ep_cont = 0
-        # Check trajectory end
-        if self.end_ep_cont >= self.max_step:
+            self.episode_time_counter = 0
+        # Check trajectory time limit
+        if self.episode_time_counter >= self.max_episode_time:
+            print("\n\nSending TRUNCATED to Agent Side")
+            print(f"Episode truncated after {self.episode_time_counter:.2f} s\n")
             truncated = True
-            self.end_ep_cont = 0
+            self.episode_time_counter = 0
         return truncated, done
 
     def step(self, action):
@@ -195,9 +201,11 @@ class CustomEnv(gym.Env):
         action_dict = self.format_actions(action)
         # print(action_dict)
         # Get observations dict from agent and send actions dict
-        _, obs, _ = self.baselines_side.stepSendActGetObs(action_dict, timeout=300)
+        lat, obs, _ = self.baselines_side.stepSendActGetObs(action_dict, timeout=300.0)
+        self.episode_time_counter += lat
         print("--"*30)
-        print(f"Received obs:")
+        print(f"Step Elapsed REAL time: {time.time() - self.last_time:.5f} s")
+        self.last_time = time.time()
         print_obs = list(obs.items())[:]
         for key, val in print_obs:
             print(f"{key}: {val:.3f}", end=", ")
@@ -208,8 +216,6 @@ class CustomEnv(gym.Env):
         # Calculate reward based on observations 
         reward = self.calculate_reward(obs_array, done)
         print("--"*30)
-        if done:
-            print("\nSending DONE to Agent Side\n")
         return obs_array, reward, done, truncated, {}
 
 def main():
@@ -238,7 +244,7 @@ def main():
 
     model = SAC("MlpPolicy", env,
                 learning_rate=0.0005, #0.0003 0.001
-                learning_starts=1000,
+                learning_starts=1,
                 batch_size = 256,
                 gamma=0.9999,
                 train_freq=(1, "step"),
