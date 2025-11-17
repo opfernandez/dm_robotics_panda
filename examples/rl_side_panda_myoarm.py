@@ -55,12 +55,12 @@ class CustomEnv(gym.Env):
         self.max_episode_time = 180.0  # seconds
         self.episode_time_counter = 0.0
         # If robot exceeds any of these threshold the episode ends
-        self.max_force_threshold = 25
+        self.max_force_threshold = 20
         self.max_torque_threshold = 55
         self.prev_eud = None
         self.last_time = time.time()
 
-    def reset(self, seed=None, options=None):
+    def reset(self, seed: int = None, options: dict = None) -> tuple[np.ndarray, dict]:
         """
         Reset the environment and prepare it for a new episode.
         Args:
@@ -86,7 +86,7 @@ class CustomEnv(gym.Env):
         # print(f"SB-Side:\tObservation received after reset:{obs}\n")
         return np.array(list(obs.values()), dtype=np.float32), {}
 
-    def format_actions(self, actions):
+    def format_actions(self, actions: np.ndarray) -> dict:
         """
         Format the actions to be sent to the agent side.
         Args:
@@ -102,7 +102,7 @@ class CustomEnv(gym.Env):
         act.update({"noused" : 0.0})
         return act
 
-    def calculate_reward(self, obs, done):
+    def calculate_reward(self, obs: np.ndarray) -> float:
         """
         Calculate the reward based on the observations received from the agent side.
         Reward is based on the distance to the ideal trajectory, penalties for
@@ -111,11 +111,10 @@ class CustomEnv(gym.Env):
         minimizing excessive velocities and forces.
         Args:
             obs (np.ndarray): Observations received from the agent side.
-            done (bool): Whether the episode is done.
         Returns:
             total_rw (float): Calculated reward based on the observations.
         """
-        # Configuraciones
+        # Configurations for reward calculation
         gain_pos = 2.5
         gain_vel = 0.75
         force_threshold = 20
@@ -156,7 +155,7 @@ class CustomEnv(gym.Env):
         print(f"Generated Reward: [{total_rw:.2f}]")
         return total_rw
 
-    def end_episode(self, obs):
+    def end_episode(self, obs: np.ndarray) -> tuple[bool, bool]:
         """
         Check if the episode should end based on the observations received.
         The episode ends if the force or torque thresholds are exceeded,
@@ -185,7 +184,7 @@ class CustomEnv(gym.Env):
             self.episode_time_counter = 0
         return truncated, done
 
-    def step(self, action):
+    def step(self, action: np.ndarray) -> tuple[np.ndarray, float, bool, bool, dict]:
         """
         Step function to send actions to the agent side and receive observations.
         Reward and done flags are calculated based on the observations received.
@@ -214,7 +213,7 @@ class CustomEnv(gym.Env):
         # Check end episode conditions
         truncated, done = self.end_episode(obs_array)
         # Calculate reward based on observations 
-        reward = self.calculate_reward(obs_array, done)
+        reward = self.calculate_reward(obs_array)
         print("--"*30)
         return obs_array, reward, done, truncated, {}
 
@@ -244,7 +243,7 @@ def main():
 
     model = SAC("MlpPolicy", env,
                 learning_rate=0.0005, #0.0003 0.001
-                learning_starts=1,
+                learning_starts=100,
                 batch_size = 256,
                 gamma=0.9999,
                 train_freq=(1, "step"),
