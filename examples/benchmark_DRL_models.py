@@ -173,11 +173,6 @@ class Agent(BaseAgent):
         self.save_data(os.path.join(self.data_path, f"panda_forces_model_world_ts_{self.step_time:.1f}.csv"), force_world, mode)
         self.save_data(os.path.join(self.data_path, f"panda_torques_model_world_ts_{self.step_time:.1f}.csv"), torque_world, mode)
         self.save_data(os.path.join(self.data_path, f"panda_reward_model_ts_{self.step_time:.1f}.csv"), [reward], mode)
-        
-        if time_t >= 11.95:
-            print(f"--- Episode completed ---")
-            sys.exit(0)
-        return self.action
     
     def reset(self):
         pass
