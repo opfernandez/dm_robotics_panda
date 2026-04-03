@@ -174,7 +174,6 @@ class Agent(BaseAgent):
         if time_t >= self.end_time:
             print(f"--- Episode completed ---")
             sys.exit(0)
-        return self.action
 
         return self.action
     
